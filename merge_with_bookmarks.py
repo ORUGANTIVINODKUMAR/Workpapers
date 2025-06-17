@@ -477,11 +477,22 @@ def merge_pdfs_with_bookmarks(input_dir, output_path):
 
             # Close the merger
             merger.close()
-
             print("PDF merge complete", file=sys.stderr)
+
+            # ✅ CLEANUP ORIGINAL UPLOADED FILES
+            print(f"\n🧹 Cleaning up uploaded files in {input_dir}", file=sys.stderr)
+            try:
+                for f in os.listdir(input_dir):
+                    if f.lower().endswith('.pdf'):
+                        file_to_remove = os.path.join(input_dir, f)
+                        os.remove(file_to_remove)
+                        print(f"✅ Deleted: {file_to_remove}", file=sys.stderr)
+            except Exception as cleanup_error:
+                print(f"⚠️ Failed to clean up uploaded files: {cleanup_error}", file=sys.stderr)
 
             # Verify the output
             print("\nVerifying output file...", file=sys.stderr)
+
             try:
                 with open(output_path, 'rb') as f:
                     reader = PdfReader(f)

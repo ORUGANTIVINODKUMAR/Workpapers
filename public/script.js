@@ -57,7 +57,7 @@ async function mergePDFs() {
     formData.append('pdfs', file);
   });
 
-const response = await fetch('http://localhost:3001/merge', {
+const response = await fetch('http://your-backend-api.com/merge', {
   method: 'POST',
   body: formData,
 });

@@ -1,0 +1,7 @@
+node_modules/
+uploads/
+merged/
+venv/
+.env
+*.log
+pdf_merge.log

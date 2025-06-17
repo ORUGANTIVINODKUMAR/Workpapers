@@ -1,0 +1,26 @@
+2025-06-13 14:47:10,780 - INFO - Starting PDF merge process
+2025-06-13 14:47:10,783 - INFO - Found 3 PDF files to process
+2025-06-13 14:47:10,783 - INFO - Processing file 1/3: 1749806228297-DIV.pdf
+2025-06-13 14:47:10,807 - INFO - File 1749806228297-DIV.pdf has 1 pages
+2025-06-13 14:47:10,890 - INFO - Processing file 2/3: 1749806228301-INT.pdf
+2025-06-13 14:47:10,932 - INFO - File 1749806228301-INT.pdf has 1 pages
+2025-06-13 14:47:11,040 - INFO - Processing file 3/3: 1749806228306-W2.pdf
+2025-06-13 14:47:11,081 - INFO - File 1749806228306-W2.pdf has 1 pages
+2025-06-13 14:47:11,296 - INFO - Writing output to merged_output_20250613_144710.pdf
+2025-06-13 14:47:11,502 - INFO - Successfully created merged PDF with 3 pages
+2025-06-13 14:47:18,785 - INFO - Starting PDF merge process
+2025-06-13 14:47:18,788 - INFO - Found 6 PDF files to process
+2025-06-13 14:47:18,788 - INFO - Processing file 1/6: 1749806228297-DIV.pdf
+2025-06-13 14:47:18,791 - INFO - File 1749806228297-DIV.pdf has 1 pages
+2025-06-13 14:47:18,933 - INFO - Processing file 2/6: 1749806228301-INT.pdf
+2025-06-13 14:47:18,934 - INFO - File 1749806228301-INT.pdf has 1 pages
+2025-06-13 14:47:19,071 - INFO - Processing file 3/6: 1749806228306-W2.pdf
+2025-06-13 14:47:19,074 - INFO - File 1749806228306-W2.pdf has 1 pages
+2025-06-13 14:47:19,255 - INFO - Processing file 4/6: 1749806238012-DIV.pdf
+2025-06-13 14:47:19,307 - INFO - File 1749806238012-DIV.pdf has 1 pages
+2025-06-13 14:47:19,465 - INFO - Processing file 5/6: 1749806238013-INT.pdf
+2025-06-13 14:47:19,507 - INFO - File 1749806238013-INT.pdf has 1 pages
+2025-06-13 14:47:19,721 - INFO - Processing file 6/6: 1749806238014-W2.pdf
+2025-06-13 14:47:19,763 - INFO - File 1749806238014-W2.pdf has 1 pages
+2025-06-13 14:47:19,947 - INFO - Writing output to merged_output_20250613_144718.pdf
+2025-06-13 14:47:20,264 - INFO - Successfully created merged PDF with 6 pages

@@ -5,15 +5,29 @@
 }
 body {
   font-family: Arial, sans-serif;
-  background-color: #f0f0f0;
+  background-color: #060606;
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
   padding: 20px;
+  overflow: auto;
 }
+#tsparticles canvas{
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: -2 !important;
+  pointer-events: none !important;
+}
+/*Ensure UI is on top */
 .container {
-  background: #292848;
+  position: relative;
+  z-index: 1;
+  /*background: #292848;*/
+  background: #1d1c1c;
   padding: 30px;
   border-radius: 10px;
   box-shadow: 0 0 10px rgba(0,0,0,0.1);
@@ -21,6 +35,59 @@ body {
   width: 100%;
   max-width: 700px;
 }
+.animated-rainbow-btn {
+  position: relative;
+  padding: 14px 32px;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+  background-color: black;
+  border: none;
+  border-radius: 2em;
+  cursor: pointer;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.animated-rainbow-btn::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(
+    90deg,
+    #00ffff,
+    #3226dd,
+    #ff00e0,
+    #ff00ff,
+    #00ffff
+  );
+  background-size: 400% 400%;
+  animation: moveGradient 6s linear infinite;
+  border-radius: 2em;
+  z-index: -1;
+}
+
+.animated-rainbow-btn::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  background-color: black;
+  border-radius: 2em;
+  z-index: -1;
+}
+
+@keyframes moveGradient {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+
 .container h1 {
   color: #fff;
   margin-bottom: 20px;
@@ -35,6 +102,7 @@ body {
 .button-box {
   flex: 1 1 45%;
 }
+
 .upload-section {
   text-align: left;
 }

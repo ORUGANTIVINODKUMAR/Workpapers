@@ -389,12 +389,12 @@ def merge_pdfs_with_bookmarks(input_dir, output_path):
         
         # Track document information
         all_documents = []
-        
+
         # First analyze all documents
         for filename in pdf_files:
             file_path = os.path.join(input_dir, filename)
             print(f"\nAnalyzing file: {filename}", file=sys.stderr)
-            
+
             try:
                 # Open and validate PDF
                 with open(file_path, 'rb') as file:
@@ -406,24 +406,24 @@ def merge_pdfs_with_bookmarks(input_dir, output_path):
                     except Exception as e:
                         print(f"Skipping {filename} - invalid PDF: {e}", file=sys.stderr)
                         continue
-                
+
                 page_classifications = analyze_pdf_pages(file_path)
-                
+
                 if not page_classifications:
                     print(f"Skipping {filename} - no classifications found", file=sys.stderr)
                     continue
-                
-                for page_info in page_classifications:
-                    doc_info = {
-                        'file_path': file_path,
-                        'page_num': page_info['page_num'],
-                        'type': page_info['type'],
-                        'category': page_info['category'],
-                        'title': format_bookmark_title(page_info['type'], page_info['page_num']),
-                        'priority': get_form_priority(page_info['type'], page_info['category'])
-                    }
-                    all_documents.append(doc_info)
-                    print(f"Added document: {doc_info['title']} (Category: {doc_info['category']})", file=sys.stderr)
+
+                first_page = page_classifications[0]
+                doc_info = {
+                    'file_path': file_path,
+                    'page_classifications': page_classifications,
+                    'type': first_page['type'],
+                    'category': first_page['category'],
+                    'title': format_bookmark_title(first_page['type'], first_page['page_num']),
+                    'priority': get_form_priority(first_page['type'], first_page['category'])
+                }
+                all_documents.append(doc_info)
+                print(f"Added document: {doc_info['title']} (Category: {doc_info['category']})", file=sys.stderr)
                     
             except Exception as e:
                 print(f"Error processing {filename}: {e}", file=sys.stderr)
@@ -451,68 +451,49 @@ def merge_pdfs_with_bookmarks(input_dir, output_path):
         # Create new merger for output
         merger = PdfMerger(strict=False)
         current_page = 0
-        
+
         try:
             # Process Income documents
             if income_docs:
                 income_parent = merger.add_outline_item("Income", 0)
                 print("Created Income parent bookmark", file=sys.stderr)
-                
+
                 for doc in income_docs:
                     with open(doc['file_path'], 'rb') as file:
                         reader = PdfReader(file)
-                        if doc['page_num'] < len(reader.pages):
-                            writer = PdfWriter()
-                            writer.add_page(reader.pages[doc['page_num']])
-            
-                            temp_path = os.path.join(tempfile.gettempdir(), f"temp_{current_page}.pdf")
-                            with open(temp_path, 'wb') as temp_file:
-                                writer.write(temp_file)
+                        num_pages = len(reader.pages)
+                        file.seek(0)
+                        merger.append(fileobj=file)
 
-                            try:
-                                with open(temp_path, 'rb') as temp_file:
-                                    merger.append(fileobj=temp_file)
-                                    merger.add_outline_item(doc['title'], current_page, parent=income_parent)
-                                    print(f"Added Income bookmark: {doc['title']} at page {current_page}", file=sys.stderr)                       
-                            except Exception as e:
-                                print(f"❌ Failed to add income page to merger: {e}", file=sys.stderr)
-                            finally:
-                                try:
-                                    os.remove(temp_path)
-                                except Exception as e:
-                                    print(f"⚠️ Failed to delete temp file {temp_path}: {e}", file=sys.stderr)
+                    doc_bookmark = merger.add_outline_item(doc['title'], current_page, parent=income_parent)
 
-                            current_page += 1
+                    for page_info in doc['page_classifications']:
+                        page_title = format_bookmark_title(page_info['type'], page_info['page_num'])
+                        merger.add_outline_item(page_title, current_page + page_info['page_num'], parent=doc_bookmark)
+
+                    print(f"Added Income document: {doc['title']} with {num_pages} pages", file=sys.stderr)
+                    current_page += num_pages
 
             # Process Expense documents
             if expense_docs:
                 expense_parent = merger.add_outline_item("Expenses", current_page)
                 print(f"Created Expenses parent bookmark at page {current_page}", file=sys.stderr)
-                
+
                 for doc in expense_docs:
                     with open(doc['file_path'], 'rb') as file:
                         reader = PdfReader(file)
-                        if doc['page_num'] < len(reader.pages):
-                            writer = PdfWriter()
-                            writer.add_page(reader.pages[doc['page_num']])
+                        num_pages = len(reader.pages)
+                        file.seek(0)
+                        merger.append(fileobj=file)
 
-                            temp_path = os.path.join(tempfile.gettempdir(), f"temp_{current_page}.pdf")
+                    doc_bookmark = merger.add_outline_item(doc['title'], current_page, parent=expense_parent)
 
-                            with open(temp_path, 'wb') as temp_file:
-                                writer.write(temp_file)
+                    for page_info in doc['page_classifications']:
+                        page_title = format_bookmark_title(page_info['type'], page_info['page_num'])
+                        merger.add_outline_item(page_title, current_page + page_info['page_num'], parent=doc_bookmark)
 
-                            try:
-                                with open(temp_path, 'rb') as temp_file:
-                                    merger.append(fileobj=temp_file)
-                                    merger.add_outline_item(doc['title'], current_page, parent=expense_parent)
-                                    print(f"Added Expense bookmark: {doc['title']} at page {current_page}", file=sys.stderr)
-                            finally:
-                                try:
-                                    os.remove(temp_path)
-                                except Exception as e:
-                                    print(f"⚠️ Failed to delete temp file {temp_path}: {e}", file=sys.stderr)
-
-                            current_page += 1
+                    print(f"Added Expense document: {doc['title']} with {num_pages} pages", file=sys.stderr)
+                    current_page += num_pages
 
             # Write the final PDF
             print(f"\nWriting output to {output_path}", file=sys.stderr)

@@ -5,6 +5,7 @@ import pytesseract
 from pdf2image import convert_from_path #this uses poppler under the hood
 from PIL import Image
 import tempfile
+import pdfplumber
 
 def extract_text_with_ocr(pdf_path, page_num=None):
     """Extract text using OCR for scanned documents"""
@@ -16,18 +17,25 @@ def extract_text_with_ocr(pdf_path, page_num=None):
 
         if page_num is not None:
             if 0 <= page_num < len(images):
-                return pytesseract.image_to_string(images[page_num])
+                text = pytesseract.image_to_string(images[page_num])
+                print(f"\n=== OCR TEXT FROM PAGE {page_num + 1} of {pdf_path} ===")
+                print(text)
+                print("=" * 60)
+                return text
             return ''
         
         text = ''
-        for image in images:
-            text += pytesseract.image_to_string(image) + '\n'
+        for i, image in enumerate(images):
+            page_text = pytesseract.image_to_string(image)
+            print(f"\n=== OCR TEXT FROM PAGE {i + 1} of {pdf_path} ===")
+            print(page_text)
+            print("=" * 60)
+            text += page_text + '\n'
         return text
 
     except Exception as e:
         print(f"OCR processing failed for {pdf_path}: {e}", file=sys.stderr)
         print(f"📝 Page {page_num + 1} extracted text preview: {text.strip()[:150]}", file=sys.stderr)
-
         return ''
 
 def extract_text_from_pdf(file_path, page_num=None):
@@ -43,6 +51,15 @@ def extract_text_from_pdf(file_path, page_num=None):
                     # Try normal text extraction
                     try:
                         text = reader.pages[page_num].extract_text() or ''
+                        
+                        # Print extracted text
+                        print(f"\n=== EXTRACTED TEXT FROM PAGE {page_num + 1} of {file_path} ===")
+                        if text.strip():
+                            print(text)
+                        else:
+                            print("No text found with PyPDF2 extraction")
+                        print("=" * 60)
+                        
                         if not text or len(text.strip()) < 50:
                             print(f"⚠️ No text on page {page_num + 1}, using OCR", file=sys.stderr)
                             try:
@@ -52,7 +69,11 @@ def extract_text_from_pdf(file_path, page_num=None):
                                     last_page=page_num + 1,
                                     poppler_path=POPPLER_PATH
                                 )[0]
-                                text = pytesseract.image_to_string(image)
+                                ocr_text = pytesseract.image_to_string(image)
+                                print(f"\n=== OCR TEXT FROM PAGE {page_num + 1} of {file_path} ===")
+                                print(ocr_text)
+                                print("=" * 60)
+                                text = ocr_text
                                 print(f"OCR completed for page {page_num + 1}", file=sys.stderr)
                             except Exception as ocr_error:
                                 print(f"OCR failed for page {page_num + 1}: {ocr_error}", file=sys.stderr)
@@ -62,6 +83,15 @@ def extract_text_from_pdf(file_path, page_num=None):
                 for i in range(len(reader.pages)):
                     try:
                         page_text = reader.pages[i].extract_text() or ''
+                        
+                        # Print extracted text for each page
+                        print(f"\n=== EXTRACTED TEXT FROM PAGE {i + 1} of {file_path} ===")
+                        if page_text.strip():
+                            print(page_text)
+                        else:
+                            print("No text found with PyPDF2 extraction")
+                        print("=" * 60)
+                        
                         if not page_text or len(page_text.strip()) < 50:
                             print(f"⚠️ No text on page {i + 1}, using OCR", file=sys.stderr)
                             try:
@@ -71,7 +101,11 @@ def extract_text_from_pdf(file_path, page_num=None):
                                     last_page=i + 1,
                                     poppler_path=POPPLER_PATH
                                 )[0]
-                                page_text = pytesseract.image_to_string(image)
+                                ocr_text = pytesseract.image_to_string(image)
+                                print(f"\n=== OCR TEXT FROM PAGE {i + 1} of {file_path} ===")
+                                print(ocr_text)
+                                print("=" * 60)
+                                page_text = ocr_text
                                 print(f"OCR completed for page {i + 1}", file=sys.stderr)
                             except Exception as ocr_error:
                                 print(f"OCR failed for page {i + 1}: {ocr_error}", file=sys.stderr)
@@ -101,6 +135,12 @@ def debug_text_extraction(file_path):
                     text = page.extract_text()
                     print(f"Text extraction successful. Length: {len(text)}", file=sys.stderr)
                     print(f"First 100 characters: {text[:100]}", file=sys.stderr)
+                    
+                    # Print the full extracted text
+                    print(f"\n=== DEBUG - FULL TEXT FROM PAGE {i + 1} ===")
+                    print(text)
+                    print("=" * 60)
+                    
                 except Exception as e:
                     print(f"Text extraction failed: {e}", file=sys.stderr)
                 
@@ -121,7 +161,7 @@ def classify_document(text):
     text = ' '.join(text.lower().split())
     
     # Debug: Print first 200 characters of text being analyzed
-    print(f"\nDEBUG - Text being analyzed: {text[:200]}", file=sys.stderr)
+    print(f"\nDEBUG - Text being analyzed for classification: {text[:200]}", file=sys.stderr)
     
      # Income Documents - More specific patterns
     has_w2_label = 'w2' in text or 'w-2' in text
@@ -224,6 +264,10 @@ def analyze_pdf_pages(file_path):
         
         # First try normal processing
         for page_num in range(num_pages):
+            print(f"\n{'='*80}")
+            print(f"PROCESSING PAGE {page_num + 1} of {file_path}")
+            print(f"{'='*80}")
+            
             # Extract and classify text from this page
             text = extract_text_from_pdf(file_path, page_num)
             
@@ -524,5 +568,3 @@ if __name__ == '__main__':
     output_file = sys.argv[2]
     merge_pdfs_with_bookmarks(input_folder, output_file)
 
-
-    

@@ -1,3 +1,4 @@
 PyPDF2>=3.0.0
 pdfminer.six>=20201018
-# any other deps…
+pytesseract>=0.3.10
+# …any other deps

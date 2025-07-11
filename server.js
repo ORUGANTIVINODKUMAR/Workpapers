@@ -39,12 +39,16 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
     console.log(file.path);
   });
   
-  
+  const pythonPath = 'C:\\Python312\\python.exe';
   const python = spawn('python', ['merge_with_bookmarks.py', inputDir, outputPath]);
 
-  python.stderr.on('data', (data) => {
-    console.error(`Python error: ${data.toString()}`);
+  python.stdout.on('data', data => {
+    console.log(`[PY-OUT] ${data}`.trim());
   });
+  python.stderr.on('data', data => {
+    console.error(`[PY-ERR] ${data}`.trim());
+  });
+
 
   python.on('close', (code) => {
     if (code === 0) {

@@ -1,80 +1,83 @@
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
+// server.js
+const express   = require('express');
+const multer    = require('multer');
+const cors      = require('cors');
 const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+const fs        = require('fs');
+const path      = require('path');
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3001;
 
-//const PORT = process.env.PORT || 3001;
+// ── CONSTANTS ───────────────────────────────────────
+const ROOT_DIR    = __dirname;
+const UPLOAD_DIR  = path.join(ROOT_DIR, 'uploads');
+const MERGE_DIR   = path.join(ROOT_DIR, 'merged');
+const PYTHON_CMD  = 'python3';  // on Render use 'python3'
+const SCRIPT_PATH = path.join(ROOT_DIR, 'merge_with_bookmarks.py');
+
+// ── ENSURE DIRECTORIES EXIST ───────────────────────
+[ UPLOAD_DIR, MERGE_DIR ].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+// ── MIDDLEWARE ─────────────────────────────────────
 app.use(cors());
-app.use(express.static('public')); 
+app.use(express.static('public'));  // serve static assets if any
 
-//const upload = multer({ dest: 'uploads/' }); replaced this code with 16 -- 25 code
-// To fix the PDF corruption issue,
-// Fixed: Storage config with proper filename formatting 
+// ── MULTER SETUP ────────────────────────────────────
 const storage = multer.diskStorage({
-  destination: function (req,file, cd){
-    cd(null, 'uploads/');
-  },
-  filename: function (req, file, cd){
-    //const originalExt = path.extname(file.originalname) || '.pdf'; // Default to .pdf 
-const safeName = `${Date.now()}-${file.originalname}`;
-
-    cd(null, safeName);
+  destination: (req, file, cb) => { cb(null, UPLOAD_DIR); },
+  filename:    (req, file, cb) => {
+    const safeName = `${Date.now()}-${file.originalname}`;
+    cb(null, safeName);
   }
-})
+});
+const upload = multer({ storage });
 
-const upload = multer({ storage: storage });
-
+// ── MERGE ENDPOINT ─────────────────────────────────
 app.post('/merge', upload.array('pdfs'), (req, res) => {
-  const inputDir = 'uploads';
-  const outputPath = path.join('merged', `merged_${Date.now()}.pdf`);
+  console.log('Uploaded files:', req.files.map(f => f.path));
 
-  //  Log uploaded files (optional, for debugging)
-  console.log("Uploaded files:");
-  req.files.forEach(file => {
-    console.log(file.path);
-  });
-  
-  const pythonPath = 'C:\\Python312\\python.exe';
-  const python = spawn('python', ['merge_with_bookmarks.py', inputDir, outputPath]);
+  // build output path
+  const outName    = `merged_${Date.now()}.pdf`;
+  const outputPath = path.join(MERGE_DIR, outName);
 
-  python.stdout.on('data', data => {
+  // spawn Python merger
+  const py = spawn(
+    PYTHON_CMD,
+    [ SCRIPT_PATH, UPLOAD_DIR, outputPath ],
+    { cwd: ROOT_DIR, env: process.env }
+  );
+
+  py.stdout.on('data', data => {
     console.log(`[PY-OUT] ${data}`.trim());
   });
-  python.stderr.on('data', data => {
+  py.stderr.on('data', data => {
     console.error(`[PY-ERR] ${data}`.trim());
   });
 
-
-  python.on('close', (code) => {
+  py.on('close', code => {
     if (code === 0) {
-      res.download(outputPath, () => {
-        // Cleanup
-        //fs.readdirSync(inputDir).forEach(file => fs.unlinkSync(path.join(inputDir, file)));
-        //fs.unlinkSync(outputPath);
+      // success → send file
+      res.download(outputPath, outName, err => {
+        if (err) {
+          console.error('Download error:', err);
+          res.sendStatus(500);
+        } else {
+          // optional: clean up both uploads and merged
+          fs.readdirSync(UPLOAD_DIR).forEach(f => fs.unlinkSync(path.join(UPLOAD_DIR, f)));
+          fs.unlinkSync(outputPath);
+        }
       });
     } else {
+      console.error(`merge script exited with code ${code}`);
       res.status(500).send('Failed to merge PDFs with bookmarks');
     }
   });
-}
-
-);
-
-app.post('/merge', upload.array('pdfs'), (req, res) => {
-  console.log("Uploaded files:");
-  req.files.forEach(file => {
-    console.log(file.path); // This is safe here
-  });
-
-  // ... rest of your code
 });
 
-
+// ── START SERVER ───────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });

@@ -71,14 +71,14 @@ def extract_text(path: str, page_index: int) -> str:
             opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
             img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
             t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
-            #print(f"[OCR full]\n{t3}", file=sys.stderr)
+            print(f"[OCR full]\n{t3}", file=sys.stderr)
             if len(t3.strip()) > len(text): text = t3
         except Exception:
             traceback.print_exc()
     # PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        #print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
+        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
         if len(t1.strip()) > len(text): text = t1
     except Exception:
         traceback.print_exc()
@@ -87,7 +87,7 @@ def extract_text(path: str, page_index: int) -> str:
         try:
             reader = PdfReader(path)
             t2 = reader.pages[page_index].extract_text() or ""
-            #print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
+            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
             if len(t2.strip()) > len(text): text = t2
         except Exception:
             traceback.print_exc()
@@ -393,6 +393,19 @@ def parse_w2(text: str) -> Dict[str, str]:
         'employee_name': 'N/A',
         'employee_address': 'N/A'
     }
+
+
+def print_w2_summary(info: Dict[str, str]):
+    print("\n=== W-2 Summary ===\n")
+    print(f"Employer: {info['employer_name']}, Address: {info['employer_address']}, EIN: {info['ein']}")
+    print("===================\n")
+
+
+
+def print_w2_summary(info: Dict[str,str]):
+    print("\n=== W-2 Summary ===\n")
+    print(f"Employer: {info['employer_name']}, Address: {info['employer_address']}, EIN: {info['ein']}")
+    print("===================\n")
 # ___ 1099-INTBookmark helper
 def extract_1099int_bookmark(text: str) -> str:
     """
@@ -527,7 +540,7 @@ def print_pdf_bookmarks(path: str):
     try:
         reader = PdfReader(path)
         outlines = reader.outlines
-        #print(f"\n--- Bookmark structure for {os.path.basename(path)} ---")
+        print(f"\n--- Bookmark structure for {os.path.basename(path)} ---")
         def recurse(bms, depth=0):
             for bm in bms:
                 if isinstance(bm, list):
@@ -569,7 +582,11 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             total = len(PdfReader(path).pages)
             for i in range(total):
                 # ── New: print extraction header like in your past code
+                print("=" * 400, file=sys.stderr)
                 text = extract_text(path, i)
+                print(f"📄 {fname} p{i+1} → {text or '[NO TEXT]'}", file=sys.stderr)
+
+                print("=" * 400, file=sys.stderr)
 
                 # Multi-method extraction
                 extracts = {}
@@ -598,6 +615,12 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 if not any(txt.strip() for txt in extracts.values()):
                     others.append((path, i, 'Unused'))
                     continue
+
+                for method, txt in extracts.items():
+                    # only dump the slice around our employer-info phrase
+                    print(f"[{method} full]\n{txt}", file=sys.stderr)
+
+
                 # Collect W-2 employer names across methods
                 info_by_method, names = {}, []
                 for method, txt in extracts.items():
@@ -624,7 +647,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 if names:
                     common = Counter(names).most_common(1)[0][0]
                     chosen = next(m for m,i in info_by_method.items() if i['employer_name'] == common)
-                    #print(f"--- Chosen employer ({chosen}): {common} ---", file=sys.stderr)
+                    print(f"--- Chosen employer ({chosen}): {common} ---", file=sys.stderr)
                     print_w2_summary(info_by_method[chosen])
                     w2_titles[(path, i)] = common
 
@@ -634,6 +657,12 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 cat, ft = classify_text(tiered)
                 
                 # NEW: log every classification
+                print(
+                    f"[Classification] {os.path.basename(path)} p{i+1} → "
+                    f"Category='{cat}', Form='{ft}', "
+                    f"snippet='{tiered[:150].strip().replace(chr(80),' ')}…'",
+                    file=sys.stderr
+                )
 
                 entry = (path, i, ft)
                 if cat == 'Income':
@@ -667,10 +696,24 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     stop_after_na = False
     def append_and_bookmark(entry, parent, title):
         nonlocal page_num
-        src, idx, _ = entry
-        merger.append(src, pages=(idx, idx+1))
+        p, idx, _ = entry
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            w = PdfWriter()
+            try:
+                w.add_page(PdfReader(p).pages[idx])
+                w.write(tmp)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            except Exception:
+                print(f"Temp write failed: {p} p{idx+1}", file=sys.stderr)
+                traceback.print_exc()
+            tmp_path = tmp.name
+        with open(tmp_path,'rb') as fh:
+            merger.append(fileobj=fh)
+        os.unlink(tmp_path)
         merger.add_outline_item(title, page_num, parent=parent)
         page_num += 1
+
 
     # ── Bookmarks
     if income and not stop_after_na:
@@ -698,13 +741,13 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # NEW: strip ", N.A" and stop after this bookmark
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")
-                    #print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
                     append_and_bookmark(entry, node, lbl)
                     stop_after_na = True
                     break
 
                 # normal case
-                #print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
             if stop_after_na:
                 break
@@ -726,13 +769,13 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # NEW: strip ", N.A" and stop
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")
-                    #print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
                     append_and_bookmark(entry, node, lbl)
                     stop_after_na = True
                     break
 
                 # normal case
-                #print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
             if stop_after_na:
                 break
@@ -747,11 +790,11 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             
 
         # NEW:
-            #print(
-             #   f"[Bookmark] {os.path.basename(path)} p{idx+1} → "
-              #  f"Category='Others', Form='Unused', Title='{lbl}'",
-               # file=sys.stderr
-            #)
+            print(
+                f"[Bookmark] {os.path.basename(path)} p{idx+1} → "
+                f"Category='Others', Form='Unused', Title='{lbl}'",
+                file=sys.stderr
+            )
 
             append_and_bookmark(entry, node, lbl)
 
@@ -779,3 +822,7 @@ if __name__=='__main__':
     p.add_argument('output_pdf', help="Path for the merged PDF (outside input_dir)")
     args = p.parse_args()
     merge_with_bookmarks(args.input_dir, args.output_pdf)
+
+
+
+    

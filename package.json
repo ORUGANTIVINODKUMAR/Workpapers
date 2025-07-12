@@ -1,6 +1,6 @@
 {
    "engines": {
-      "node": "21.2.0"
+      "node": "22.x"
    },
    "name": "workpp",
    "version": "1.0.0",

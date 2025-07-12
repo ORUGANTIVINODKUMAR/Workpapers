@@ -8,6 +8,16 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const MERGED_DIR = path.join(__dirname, 'merged');
+
+[UPLOAD_DIR, MERGED_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Created missing directory: ${dir}`);
+  }
+});
+
 //const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.static('public')); 

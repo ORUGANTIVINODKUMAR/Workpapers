@@ -3,6 +3,8 @@ from collections import defaultdict, Counter
 from typing import Dict, List, Tuple
 import re
 from collections import Counter
+os.makedirs("uploads", exist_ok=True)
+os.makedirs("merged", exist_ok=True)
 # …
 EMP_BRACKET_RE = re.compile(
     r"Employer's name, address, and ZIP code.*?\[(.*?)\]",

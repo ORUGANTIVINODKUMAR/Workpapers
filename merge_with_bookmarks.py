@@ -3,6 +3,11 @@ from collections import defaultdict, Counter
 from typing import Dict, List, Tuple
 import re
 from collections import Counter
+# …
+EMP_BRACKET_RE = re.compile(
+    r"Employer's name, address, and ZIP code.*?\[(.*?)\]",
+    re.IGNORECASE | re.DOTALL
+)
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import PyPDF2
@@ -14,12 +19,6 @@ import fitz  # PyMuPDF
 import pdfplumber
 from PIL import Image
 import logging
-# …
-EMP_BRACKET_RE = re.compile(
-    r"Employer's name, address, and ZIP code.*?\[(.*?)\]",
-    re.IGNORECASE | re.DOTALL
-)
-
 
 # Add the helper at the [To get bookmark for]
 PHRASE = "Employer's name, address, and ZIP code"
@@ -611,10 +610,6 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     doc.close()
                 except:
                     extracts['PyMuPDF'] = ""
-                # 🚀 NEW: if *no* method extracted any text, send straight to Unused
-                if not any(txt.strip() for txt in extracts.values()):
-                    others.append((path, i, 'Unused'))
-                    continue
 
                 for method, txt in extracts.items():
                     # only dump the slice around our employer-info phrase
@@ -822,7 +817,3 @@ if __name__=='__main__':
     p.add_argument('output_pdf', help="Path for the merged PDF (outside input_dir)")
     args = p.parse_args()
     merge_with_bookmarks(args.input_dir, args.output_pdf)
-
-
-
-    

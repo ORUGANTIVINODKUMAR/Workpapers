@@ -1,23 +1,24 @@
-FROM node:21-bullseye
+# 1) Base image with Python
+FROM python:3.13-slim
 
-# 1) Install Ubuntu packages, including the Tesseract engine
+# 2) Install Tesseract + its libs so pytesseract can call it
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-pip poppler-utils tesseract-ocr \
+      tesseract-ocr \
+      libtesseract-dev \
+      libleptonica-dev \
  && rm -rf /var/lib/apt/lists/*
 
-# 2) Node setup
-WORKDIR /srv
-COPY package*.json ./
-RUN npm install
-
-# 3) Python setup
-COPY requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# 4) Copy your code & expose the port
+# 3) Copy your source code in
+WORKDIR /app
 COPY . .
-EXPOSE 3001
 
-# 5) Launch
-CMD ["npm","start"]
+# 4) Install Python & Node dependencies
+RUN pip install --no-cache-dir -r requirements.txt \
+ && npm install
+
+# 5) Expose the port and define the startup
+ENV PORT=${PORT:-3000}
+CMD mkdir -p uploads merged \
+    && python merge_with_bookmarks.py uploads merged/output.pdf \
+    && node server.js

@@ -1,24 +1,21 @@
-# 1) Base image with Python
-FROM python:3.13-slim
+FROM node:22.17.0-slim
 
-# 2) Install Tesseract + its libs so pytesseract can call it
+# Install Tesseract and Python 3 & pip
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      libtesseract-dev \
-      libleptonica-dev \
+      python3 python3-pip \
+      tesseract-ocr libtesseract-dev libleptonica-dev \
  && rm -rf /var/lib/apt/lists/*
 
-# 3) Copy your source code in
 WORKDIR /app
 COPY . .
 
-# 4) Install Python & Node dependencies
-RUN pip install --no-cache-dir -r requirements.txt \
- && npm install
+# Install Python & Node deps
+RUN pip3 install --no-cache-dir -r requirements.txt \
+ && npm ci
 
-# 5) Expose the port and define the startup
 ENV PORT=${PORT:-3000}
+
 CMD mkdir -p uploads merged \
-    && python merge_with_bookmarks.py uploads merged/output.pdf \
-    && node server.js
+  && python3 merge_with_bookmarks.py uploads merged/output.pdf \
+  && node server.js

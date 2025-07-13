@@ -1,24 +1,28 @@
-# 1) Base image with Python
-FROM python:3.13-slim
+# Use the official Node image (matches your package.json engine)
+FROM node:21.2.0-bullseye
 
-# 2) Install Tesseract + its libs so pytesseract can call it
+# Install Python, pip, and Poppler (for pdf2image)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      libtesseract-dev \
-      libleptonica-dev \
- && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends \
+       python3 python3-pip poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 
-# 3) Copy your source code in
-WORKDIR /app
+# Set working directory
+WORKDIR /srv
+
+# Install Node dependencies
+COPY package*.json ./
+RUN npm install
+
+# Install Python dependencies
+COPY requirements.txt ./
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy the rest of your code
 COPY . .
 
-# 4) Install Python & Node dependencies
-RUN pip install --no-cache-dir -r requirements.txt \
- && npm install
+# Expose the same port your Express server uses
+EXPOSE 3001
 
-# 5) Expose the port and define the startup
-ENV PORT=${PORT:-3000}
-CMD mkdir -p uploads merged \
-    && python merge_with_bookmarks.py uploads merged/output.pdf \
-    && node server.js
+# Launch via package.json “start” script
+CMD ["npm", "start"]

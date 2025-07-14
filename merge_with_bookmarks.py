@@ -8,12 +8,19 @@ EMP_BRACKET_RE = re.compile(
     r"Employer's name, address, and ZIP code.*?\[(.*?)\]",
     re.IGNORECASE | re.DOTALL
 )
+import shutil
+import pytesseract
+if shutil.which("tesseract") is None:
+    raise EnvironmentError("Tesseract is not installed or not in PATH.")
+
+# Optional: explicitly set the path if needed
+# pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import PyPDF2
 from pdfminer.high_level import extract_text as pdfminer_extract
 from pdfminer.layout import LAParams
-import pytesseract
 from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber

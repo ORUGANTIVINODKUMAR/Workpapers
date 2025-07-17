@@ -14,13 +14,14 @@ RUN apt-get update \
 WORKDIR /opt/render/project/src
 
 # 4. Copy package.json for Node dependencies (cache layer)
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json requirements.txt ./
 RUN npm install
 
 # 5. Create and activate virtualenv, then install Python deps inline
 RUN python -m venv .venv \
  && .venv/bin/pip install --upgrade pip \
  && .venv/bin/pip install PyPDF2
+ && .venv/bin/pip install -r requirements.txt
 # 6. Copy the rest of your code
 COPY . .
 

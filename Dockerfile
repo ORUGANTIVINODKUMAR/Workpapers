@@ -1,7 +1,7 @@
 # 1. Base image
 FROM python:3.13-slim
 
-# 2. Install OS-level deps: Tesseract OCR, Poppler (for pdf2image), Node.js/npm
+# 2. Install OS-level deps (Tesseract, Poppler for pdf2image, Node.js/npm)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       tesseract-ocr \
@@ -11,25 +11,25 @@ RUN apt-get update \
       npm \
  && rm -rf /var/lib/apt/lists/*
 
-# 3. Set workdir
+# 3. Set working directory
 WORKDIR /opt/render/project/src
 
-# 4. Copy and install Node dependencies
+# 4. Copy only Node dependency manifests, install JS deps
 COPY package.json package-lock.json ./
 RUN npm install
 
-# 5. Copy and install Python dependencies
+# 5. Copy only Python dependency list, install Python deps
 COPY requirements.txt ./
 RUN python -m venv .venv \
  && .venv/bin/pip install --upgrade pip \
  && .venv/bin/pip install -r requirements.txt
 
-# 6. Copy your application code
+# 6. Copy the rest of your application code
 COPY . .
 
-# 7. Ensure the uploads/ and merged/ dirs exist
+# 7. Make sure your upload & merged folders exist
 RUN mkdir -p uploads merged
 
-# 8. Startup: run Python merge script then Node server in one shell
+# 8. At runtime: run your Python merge script, then start your Node server
 CMD ["sh", "-c", \
     ".venv/bin/python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]

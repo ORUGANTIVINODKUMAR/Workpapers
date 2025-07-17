@@ -20,9 +20,8 @@ RUN npm install
 
 # 5. Copy only Python dependency list, install Python deps
 COPY requirements.txt ./
-RUN python -m venv .venv \
- && .venv/bin/pip install --upgrade pip \
- && .venv/bin/pip install -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
 # 6. Copy the rest of your application code
 COPY . .
 
@@ -30,4 +29,4 @@ COPY . .
 RUN mkdir -p uploads merged
 
 # 8. At runtime: run your Python merge script, then start your Node server
-CMD ["/bin/bash", "-c", ".venv/bin/python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]
+CMD ["/bin/bash", "-c", "python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]

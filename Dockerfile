@@ -1,7 +1,7 @@
-# 1. Pick a base image
+# 1. Base image
 FROM python:3.13-slim
 
-# 2. Install system packages: tesseract + nodejs/npm
+# 2. Install OS-level deps: Tesseract OCR + Node.js/npm
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       tesseract-ocr \
@@ -10,20 +10,14 @@ RUN apt-get update \
       npm \
  && rm -rf /var/lib/apt/lists/*
 
-# 3. Set working dir
+# 3. Set working directory
 WORKDIR /opt/render/project/src
 
-# 4. Copy package.json first and install node deps (cache layer)
+# 4. Copy package.json for Node dependencies (cache layer)
 COPY package.json package-lock.json ./
 RUN npm install
 
-# 5. Copy the rest of your code
-COPY . .
-
-# 6. Make sure the uploads/ and merged/ dirs exist
-RUN mkdir -p uploads merged
-
-# 7. Create & populate a venv
+# 5. Create and activate virtualenv, then install Python deps inline
 RUN python -m venv .venv \
  && .venv/bin/pip install --upgrade pip \
  && .venv/bin/pip install \
@@ -34,6 +28,13 @@ RUN python -m venv .venv \
       "PyMuPDF>=1.20.0" \
       "pdfplumber>=0.8.0" \
       "Pillow>=8.0.0"
-# 8. Startup: run Python then Node in one shell
+
+# 6. Copy the rest of your code
+COPY . .
+
+# 7. Ensure upload/merged dirs exist
+RUN mkdir -p uploads merged
+
+# 8. Startup: run Python merge script then Node server in one shell
 CMD ["sh", "-c", \
     ".venv/bin/python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]

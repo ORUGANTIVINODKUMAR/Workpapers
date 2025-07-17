@@ -128,31 +128,6 @@ def extract_text_from_image(file_path: str) -> str:
 def classify_text(text: str) -> Tuple[str, str]:
     t = text.lower()
     lower = text.lower()
-    #Mortgage form
-    mort_front = [
-        "Refund of overpaid interest",
-        "Mortgage insurance premiums",
-        "Mortgage origination date",
-        "Number of properties securing the morgage",
-    ]
-    for pat in mort_front:
-        if pat in lower:
-            return "Expenses", "1098-Mortgage"
-    
-    
-    #3) fallback form detectors
-    if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
-    if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
-    if '1099-div' in t: return 'Income', '1099-DIV'
-    if 'form 1099-div' in t: return 'Income', '1099-DIV'
-    if '1098' in t and 'mortgage' in t: return 'Expenses', '1098-Mortgage'
-    if '1098-t' in t: return 'Expenses', '1098-T'
-    if 'property tax' in t: return 'Expenses', 'Property Tax'
-    if '1098' in t: return 'Expenses', '1098-Other'
-    if '1099' in t: return 'Income', '1099-Other'
-    if 'donation' in t: return 'Expenses', 'Donation'
-    return 'Unknown', 'Unused'
-
     
      # If page matches any instruction patterns, classify as Others → Unused
     instruction_patterns = [
@@ -252,6 +227,32 @@ def classify_text(text: str) -> Tuple[str, str]:
     for pat in instruction_patterns:
         if pat in lower:
             return "Others", "Unused"
+    #Mortgage form
+    mort_front = [
+        "Refund of overpaid interest",
+        "Mortgage insurance premiums",
+        "Mortgage origination date",
+        "Number of properties securing the morgage",
+    ]
+    for pat in mort_front:
+        if pat in lower:
+            return "Expenses", "1098-Mortgage"
+    
+    
+    #3) fallback form detectors
+    if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
+    if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
+    if '1099-div' in t: return 'Income', '1099-DIV'
+    if 'form 1099-div' in t: return 'Income', '1099-DIV'
+    if '1098' in t and 'mortgage' in t: return 'Expenses', '1098-Mortgage'
+    if '1098-t' in t: return 'Expenses', '1098-T'
+    if 'property tax' in t: return 'Expenses', 'Property Tax'
+    if '1098' in t: return 'Expenses', '1098-Other'
+    if '1099' in t: return 'Income', '1099-Other'
+    if 'donation' in t: return 'Expenses', 'Donation'
+    return 'Unknown', 'Unused'
+
+    
     # Detect W-2 pages by their header phrases
     if 'wage and tax statement' in t or ("employer's name" in t and 'address' in t):
         return 'Income', 'W-2'

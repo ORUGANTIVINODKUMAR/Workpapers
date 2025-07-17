@@ -1,13 +1,20 @@
 FROM python:3.13-slim
 
-# Install Tesseract and English language data
-RUN apt-get update && \
-    apt-get install -y tesseract-ocr tesseract-ocr-eng libtesseract-dev && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install Tesseract system binary
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      tesseract-ocr \
+      libtesseract-dev \
+ && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
+WORKDIR /opt/render/project/src
 COPY . .
-CMD ["python", "main.py"]
+
+# Install Python deps
+RUN python -m venv .venv \
+ && .venv/bin/pip install -r requirements.txt
+
+# If you have any Node steps, install them here too:
+# RUN npm install
+
+CMD [".venv/bin/python", "merge_with_bookmarks.py"]

@@ -20,7 +20,7 @@ RUN npm install
 # 5. Create and activate virtualenv, then install Python deps inline
 RUN python -m venv .venv \
  && .venv/bin/pip install --upgrade pip \
- && .venv/bin/pip install -r requirements.txt \
+ && .venv/bin/pip install -r so.txt \
  && .venv/bin/pip install PyPDF2
 # 6. Copy the rest of your code
 COPY . .

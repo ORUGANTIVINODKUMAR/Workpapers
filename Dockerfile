@@ -20,6 +20,7 @@ RUN npm install
 
 # 5. Copy only Python dependency list, install Python deps
 COPY requirements.txt ./
+RUN python -m venv .venv 
 RUN pip install --upgrade pip 
 RUN pip install -r requirements.txt
 

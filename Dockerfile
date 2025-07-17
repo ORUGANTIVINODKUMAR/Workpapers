@@ -26,8 +26,14 @@ RUN mkdir -p uploads merged
 # 7. Create & populate a venv
 RUN python -m venv .venv \
  && .venv/bin/pip install --upgrade pip \
- && .venv/bin/pip install -r requirements.txt
-
+ && .venv/bin/pip install \
+      "PyPDF2>=3.0.0" \
+      "pdfminer.six>=20201018" \
+      "pytesseract>=0.3.10" \
+      "pdf2image>=1.16.0" \
+      "PyMuPDF>=1.20.0" \
+      "pdfplumber>=0.8.0" \
+      "Pillow>=8.0.0"
 # 8. Startup: run Python then Node in one shell
 CMD ["sh", "-c", \
     ".venv/bin/python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]

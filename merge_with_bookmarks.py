@@ -8,11 +8,12 @@ EMP_BRACKET_RE = re.compile(
     r"Employer's name, address, and ZIP code.*?\[(.*?)\]",
     re.IGNORECASE | re.DOTALL
 )
-import pytesseract
+
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import PyPDF2
 from pdfminer.high_level import extract_text as pdfminer_extract
 from pdfminer.layout import LAParams
+import pytesseract
 from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber
@@ -127,6 +128,32 @@ def extract_text_from_image(file_path: str) -> str:
 def classify_text(text: str) -> Tuple[str, str]:
     t = text.lower()
     lower = text.lower()
+    #Mortgage form
+    mort_front = [
+        "Refund of overpaid interest",
+        "Mortgage insurance premiums",
+        "Mortgage origination date",
+        "Number of properties securing the morgage",
+    ]
+    for pat in mort_front:
+        if pat in lower:
+            return "Expenses", "1098-Mortgage"
+    
+    
+    #3) fallback form detectors
+    if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
+    if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
+    if '1099-div' in t: return 'Income', '1099-DIV'
+    if 'form 1099-div' in t: return 'Income', '1099-DIV'
+    if '1098' in t and 'mortgage' in t: return 'Expenses', '1098-Mortgage'
+    if '1098-t' in t: return 'Expenses', '1098-T'
+    if 'property tax' in t: return 'Expenses', 'Property Tax'
+    if '1098' in t: return 'Expenses', '1098-Other'
+    if '1099' in t: return 'Income', '1099-Other'
+    if 'donation' in t: return 'Expenses', 'Donation'
+    return 'Unknown', 'Unused'
+
+    
      # If page matches any instruction patterns, classify as Others → Unused
     instruction_patterns = [
     # full “Instructions for Employee…” block (continued from back of Copy C)
@@ -228,19 +255,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     # Detect W-2 pages by their header phrases
     if 'wage and tax statement' in t or ("employer's name" in t and 'address' in t):
         return 'Income', 'W-2'
-    #3) fallback form detectors
-    if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
-    if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
-    if '1099-div' in t: return 'Income', '1099-DIV'
-    if 'form 1099-div' in t: return 'Income', '1099-DIV'
-    if '1098' in t and 'mortgage' in t: return 'Expenses', '1098-Mortgage'
-    if '1098-t' in t: return 'Expenses', '1098-T'
-    if 'property tax' in t: return 'Expenses', 'Property Tax'
-    if '1098' in t: return 'Expenses', '1098-Other'
-    if '1099' in t: return 'Income', '1099-Other'
-    if 'donation' in t: return 'Expenses', 'Donation'
-    return 'Unknown', 'Unused'
-
+    
 # ── Parse W-2 fields bookmarks
 def normalize_entity_name(raw: str) -> str:
     """
@@ -407,8 +422,9 @@ def print_w2_summary(info: Dict[str,str]):
 # ___ 1099-INTBookmark helper
 def extract_1099int_bookmark(text: str) -> str:
     """
-    1) BANK OF AMERICA override
-    2) After your trigger patterns:
+    1) US Bank NA override (normalize USS to US)
+    2) BANK OF AMERICA override
+    3) After your trigger patterns:
        • skip blanks, skip any TIN/RTN lines
        • if underscores-only, return that
        • else:
@@ -420,12 +436,16 @@ def extract_1099int_bookmark(text: str) -> str:
     """
     lines: List[str] = text.splitlines()
     lower = text.lower()
-    # 1) BANK OF AMERICA override
+    # 1) US Bank NA override (including USS Bank NA)
+    if "uss bank na" in lower or "us bank na" in lower or "u s bank na" in lower:
+        # Normalize any variant to "US Bank NA"
+        return "US Bank NA"
+    # 2) BANK OF AMERICA override
     if "bank of america" in lower:
         for L in lines:
             if "bank of america" in L.lower():
                 return re.sub(r"[^\w\s]+$", "", L.strip())
-    # 2) trigger patterns
+    # 3) trigger patterns
     patterns = [
         "Interest income Income",
         "ZIP or foreign postal code, and telephone no.",
@@ -446,11 +466,11 @@ def extract_1099int_bookmark(text: str) -> str:
                 cleaned = re.sub(
                     r"(?i)\s*reel\s+form\s+1099-?int\b.*$", "", s
                 )
-                # b) strip trailing “, N.A” (with or without dot)
+                # b) strip trailing ", N.A" (with or without dot)
                 cleaned = re.sub(r",\s*n\.a\.?$", "", cleaned, flags=re.IGNORECASE)
                 # c) strip leftover punctuation or stray quotes
                 cleaned = re.sub(r"[^\w\s]+$", "", cleaned)
-                # d) **new**: drop any final single-character token
+                # d) drop any final single-character token
                 cleaned = re.sub(r"\b\w\b$", "", cleaned).strip()
                 return cleaned
     # fallback
@@ -510,25 +530,98 @@ def extract_1099div_bookmark(text: str) -> str:
     # 3) Ultimate fallback
     return "1099-DIV"
 # 1098-Mortgage
+def clean_bookmark(name: str) -> str:
+    # Remove any trailing junk starting from 'Interest' and strip whitespace
+    cleaned = re.sub(r"\bInterest.*$", "", name, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def extract_1098mortgage_bookmark(text: str) -> str:
     """
-    Grab the lender’s name for Form 1098-Mortgage by:
-      1) Scanning for the RECIPIENT’S/LENDER’S header line
-      2) Skipping blanks
-      3) Returning the very next non-blank line (stripping trailing junk)
-      4) Fallback to "1098-Mortgage"
+    1) Dovenmuehle Mortgage override
+    2) Huntington National Bank override
+    3) UNITED NATIONS FCU override
+    4) LOANDEPOT COM LLC override
+    5) "Limits based" header override (grab first non-empty next line, strip any 'and' clause)
+    6) FCU override
+    7) PAYER(S)/BORROWER(S) override
+    8) RECIPIENT’S/LENDER’S header override
+    9) Fallback to "1098-Mortgage"
+    After extraction, cleans up any trailing junk starting from 'Interest'.
     """
-    lines       = text.splitlines()
+    lines: List[str] = text.splitlines()
     lower_lines = [L.lower() for L in lines]
 
-    header = "recipient’s/lender’s name"
+    # 1) Dovenmuehle Mortgage override
+    for L in lines:
+        if re.search(r"dovenmuehle\s+mortgage", L, flags=re.IGNORECASE):
+            m = re.search(r"(Dovenmuehle Mortgage, Inc)", L, flags=re.IGNORECASE)
+            name = m.group(1) if m else re.sub(r"[^\w\s,]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 2) Huntington National Bank override
+    for L in lines:
+        if re.search(r"\bhuntington\s+national\s+bank\b", L, flags=re.IGNORECASE):
+            m = re.search(r"\b(?:The\s+)?Huntington\s+National\s+Bank\b", L, flags=re.IGNORECASE)
+            name = m.group(0) if m else re.sub(r"[^\w\s]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 3) UNITED NATIONS FCU override
+    for L in lines:
+        if re.search(r"\bunited\s+nations\s+fcu\b", L, flags=re.IGNORECASE):
+            return clean_bookmark("UNITED NATIONS FCU")
+
+    # 4) LOANDEPOT COM LLC override
+    for L in lines:
+        if re.search(r"\bloan\s*depot\s*com\s*llc\b", L, flags=re.IGNORECASE):
+            m = re.search(r"\bloan\s*depot\s*com\s*llc\b", L, flags=re.IGNORECASE)
+            name = m.group(0) if m else re.sub(r"[^\w\s]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 5) "Limits based" header override (grab first non-empty next line, strip any 'and' clause)
+    for i, header in enumerate(lower_lines):
+        if "limits based on the loan amount" in header:
+            for j in range(i+1, len(lines)):
+                cand = lines[j].strip()
+                if not cand:
+                    continue
+                # split at first 'and' and take left part
+                name = re.split(r"\band\b", cand, flags=re.IGNORECASE)[0].strip()
+                # strip trailing punctuation
+                name = re.sub(r"[^\w\s]+$", "", name)
+                return clean_bookmark(name)
+
+    # 6) FCU override
+    for L in lines:
+        if re.search(r"\bfcu\b", L, flags=re.IGNORECASE):
+            m = re.search(r"(.*?FCU)\b", L, flags=re.IGNORECASE)
+            name = m.group(1) if m else re.sub(r"[^\w\s]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 7) PAYER(S)/BORROWER(S) override
+    for i, header in enumerate(lower_lines):
+        if "payer" in header and "borrower" in header:
+            for cand in lines[i+1:]:
+                s = cand.strip()
+                if not s or len(set(s)) == 1 or re.search(r"[\d\$]|page", s, flags=re.IGNORECASE):
+                    continue
+                raw = re.sub(r"[^\w\s]+$", "", s)
+                raw = re.sub(r"(?i)\s+d/b/a\s+.*$", "", raw).strip()
+                return clean_bookmark(raw)
+
+    # 8) RECIPIENT’S/LENDER’S header override
+    header = "recipient's/lender's name"
     for i, L in enumerate(lower_lines):
         if header in L and "street address" in L:
             for j in range(i+1, len(lines)):
                 cand = lines[j].strip()
                 if cand:
-                    return re.sub(r"[^\w\s]+$", "", cand)
+                    name = re.sub(r"[^\w\s]+$", "", cand)
+                    return clean_bookmark(name)
+
+    # 9) fallback
     return "1098-Mortgage"
+
 def group_by_type(entries: List[Tuple[str,int,str]]) -> Dict[str,List[Tuple[str,int,str]]]:
     d=defaultdict(list)
     for e in entries: d[e[2]].append(e)

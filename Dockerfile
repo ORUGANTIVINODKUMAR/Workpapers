@@ -16,4 +16,4 @@ RUN python -m venv .venv \
  && .venv/bin/pip install -r requirements.txt
 
 # ← this replaces “Start Command”:
-CMD [".venv/bin/python", "merge_with_bookmarks.py", "uploads", "merged/output.pdf", "&&", "node", "server.js"]
+CMD [".venv/bin/python", "merge_with_bookmarks.py", "uploads", "merged/output.pdf", "&&", "node server.js"]

@@ -30,4 +30,4 @@ COPY . .
 RUN mkdir -p uploads merged
 
 # 8. At runtime: run your Python merge script, then start your Node server
-CMD ["sh", "-c", "python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]
+CMD ["/bin/bash", "-c", ".venv/bin/python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]

@@ -9,6 +9,8 @@ RUN apt-get update \
 
 WORKDIR /opt/render/project/src
 COPY . .
+# ensure these dirs exist
+RUN mkdir -p uploads merged
 
 # ← this replaces “Build Command”:
 RUN python -m venv .venv \

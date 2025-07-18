@@ -283,9 +283,6 @@ def normalize_entity_name(raw: str) -> str:
     # 5. Standardize whitespace
     return ' '.join(collapsed.split()).strip()
 
-import re
-from typing import Dict, List
-
 def parse_w2(text: str) -> Dict[str, str]:
     """
     Parses SSN/EIN and pulls out employer_name and employer_address,
@@ -407,7 +404,6 @@ def parse_w2(text: str) -> Dict[str, str]:
         'employee_name': 'N/A',
         'employee_address': 'N/A'
     }
-
 
 def print_w2_summary(info: Dict[str, str]):
     print("\n=== W-2 Summary ===\n")
@@ -645,7 +641,7 @@ def print_pdf_bookmarks(path: str):
         logger.error(f"Error reading bookmarks from {path}: {e}")
 
 # ── Merge + bookmarks + multi-method extraction
-nek = None
+nek = None 
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):
     # Prevent storing merged file inside input_dir
@@ -676,7 +672,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # ── New: print extraction header like in your past code
                 print("=" * 400, file=sys.stderr)
                 text = extract_text(path, i)
-                print(f"📄 {fname} p{i+1} → {text or '[NO TEXT]'}", file=sys.stderr)
+                #print(f"📄 {fname} p{i+1} → {text or '[NO TEXT]'}", file=sys.stderr)
 
                 print("=" * 400, file=sys.stderr)
 
@@ -703,12 +699,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     doc.close()
                 except:
                     extracts['PyMuPDF'] = ""
-
-                for method, txt in extracts.items():
-                    # only dump the slice around our employer-info phrase
-                    print(f"[{method} full]\n{txt}", file=sys.stderr)
-
-
+                    
                 # Collect W-2 employer names across methods
                 info_by_method, names = {}, []
                 for method, txt in extracts.items():

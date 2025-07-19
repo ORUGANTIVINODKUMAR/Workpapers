@@ -18,9 +18,10 @@ WORKDIR /opt/render/project/src
 COPY package.json package-lock.json ./
 RUN npm install
 
-# 5. Copy and install Python dependencies
+# 5. Copy and install Python dependencies (suppress root-user warning)
 COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip \
+    && pip install --root-user-action=ignore -r requirements.txt
 
 # 6. Copy the rest of your application code
 COPY . .
@@ -31,5 +32,5 @@ RUN mkdir -p uploads merged
 # 8. Expose the port
 EXPOSE 3001
 
-# 9. Start Node.js server (which will invoke Python dynamically)
+# 9. Start Node.js server (which will invoke Python dynamically at runtime)
 CMD ["node", "server.js"]

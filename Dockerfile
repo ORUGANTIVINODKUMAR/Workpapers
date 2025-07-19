@@ -1,32 +1,49 @@
-# 1. Base image
-FROM python:3.13-slim
+# syntax=docker/dockerfile:1.4
 
-# 2. Install OS-level deps (Tesseract, Poppler for pdf2image, Node.js/npm)
+########## Builder stages ##########
+
+# 1) Python deps
+FROM python:3.13-slim AS py-builder
 RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      libtesseract-dev \
-      poppler-utils \
-      nodejs \
-      npm \
+ && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr libtesseract-dev \
  && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# 3. Set working directory
-WORKDIR /opt/render/project/src
+# 2) Node deps
+FROM node:18-alpine AS js-builder
+WORKDIR /app
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
 
-# 4. Copy only Node dependency manifests, install JS deps
-COPY package.json package-lock.json ./
-RUN npm install
+########## Final image ##########
 
-# 5. Copy only Python dependency list, install Python deps
-COPY requirements.txt ./
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
-# 6. Copy the rest of your application code
+FROM python:3.13-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr libtesseract-dev \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+# copy in installed packages
+COPY --from=py-builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
+COPY --from=js-builder /app/node_modules/ /app/node_modules/
+
+# copy your code
 COPY . .
 
-# 7. Make sure your upload & merged folders exist
+# create upload/merged dirs
 RUN mkdir -p uploads merged
 
-# 8. At runtime: run your Python merge script, then start your Node server
-CMD ["/bin/bash", "-c", "python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]
+# expose your API port
+EXPOSE 3001
+
+# health-check
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:3001/health || exit 1
+
+# start script: run merge step on build if possible, then spin up Node
+ENTRYPOINT ["sh","-c"]
+CMD ["exec node server.js"]

@@ -1,7 +1,11 @@
 {
-   "engines": {
-      "node": "21.2.0"
-   },
+  "engines": { "node": ">=18 <19" },
+  "scripts": {
+    "start": "node server.js",
+    "merge": "python3 merge_with_bookmarks.py uploads merged/output.pdf",
+    "dev": "nodemon server.js"
+  },
+
    "name": "workpp",
    "version": "1.0.0",
    "main": "server.js",

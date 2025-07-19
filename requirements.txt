@@ -1,7 +1,7 @@
 PyPDF2>=3.0.0
-pdfminer.six>=20201018
+pdfminer.six>=20221105
 pytesseract>=0.3.10
-pdf2image>=1.16.0
-PyMuPDF>=1.20.0
-pdfplumber>=0.8.0
-Pillow>=8.0.0
+pdf2image>=1.16.3
+pymupdf>=1.23.1       # for fitz
+pdfplumber>=0.9.0
+Pillow>=9.4.0

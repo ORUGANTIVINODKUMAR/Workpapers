@@ -4,78 +4,86 @@ const cors = require('cors');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-
+ 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const PYTHON = process.env.PYTHON_PATH || 'python3';
-
+ 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const MERGED_DIR = path.join(__dirname, 'merged');
-
-// Ensure upload & merged dirs exist
+ 
 [UPLOAD_DIR, MERGED_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
     console.log(`Created missing directory: ${dir}`);
   }
 });
-
+ 
+//const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.static('public'));
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.sendStatus(200);
-});
-
-// Configure Multer storage to preserve file extensions and avoid collisions
+ 
+//const upload = multer({ dest: 'uploads/' }); replaced this code with 16 -- 25 code
+// To fix the PDF corruption issue,
+// Fixed: Storage config with proper filename formatting 
 const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, UPLOAD_DIR),
-  filename: (_, file, cb) => {
-    const timestamp = Date.now();
-    const safeName = `${timestamp}-${file.originalname}`;
-    cb(null, safeName);
+  destination: function (req,file, cd){
+    cd(null, 'uploads/');
+  },
+  filename: function (req, file, cd){
+    //const originalExt = path.extname(file.originalname) || '.pdf'; // Default to .pdf 
+const safeName = `${Date.now()}-${file.originalname}`;
+ 
+    cd(null, safeName);
   }
-});
-const upload = multer({ storage });
-
-// Merge endpoint
+})
+ 
+const upload = multer({ storage: storage });
+ 
 app.post('/merge', upload.array('pdfs'), (req, res) => {
-  console.log('Uploaded files:');
-  req.files.forEach(file => console.log(file.path));
-
-  const outputFileName = `merged_${Date.now()}.pdf`;
-  const outputPath = path.join(MERGED_DIR, outputFileName);
-
-  // Spawn Python merge script
-  const python = spawn(PYTHON, ['merge_with_bookmarks.py', UPLOAD_DIR, outputPath], {
-    stdio: 'inherit'
+  const inputDir = 'uploads';
+  const outputPath = path.join('merged', `merged_${Date.now()}.pdf`);
+ 
+  //  Log uploaded files (optional, for debugging)
+  console.log("Uploaded files:");
+  req.files.forEach(file => {
+    console.log(file.path);
   });
-
-  python.on('close', code => {
+  const pythonPath = 'C:\\Python312\\python.exe';
+  const python = spawn('python', ['merge_with_bookmarks.py', inputDir, outputPath]);
+ 
+  python.stdout.on('data', data => {
+    console.log(`[PY-OUT] ${data}`.trim());
+  });
+  python.stderr.on('data', data => {
+    console.error(`[PY-ERR] ${data}`.trim());
+  });
+ 
+ 
+  python.on('close', (code) => {
     if (code === 0) {
-      res.download(outputPath, outputFileName, err => {
-        if (err) console.error('Download error:', err);
-        // Optionally clean up files here
+      res.download(outputPath, () => {
+        // Cleanup
+        //fs.readdirSync(inputDir).forEach(file => fs.unlinkSync(path.join(inputDir, file)));
+        //fs.unlinkSync(outputPath);
       });
     } else {
-      console.error(`Python script exited with code ${code}`);
       res.status(500).send('Failed to merge PDFs with bookmarks');
     }
   });
-});
-
-// Start server and handle graceful shutdown
-const server = app.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT}`);
-});
-
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    console.log('Closed out remaining connections');
-    process.exit(0);
+}
+ 
+);
+ 
+app.post('/merge', upload.array('pdfs'), (req, res) => {
+  console.log("Uploaded files:");
+  req.files.forEach(file => {
+    console.log(file.path); // This is safe here
   });
-  // Force shutdown after 10 seconds
-  setTimeout(() => process.exit(1), 10_000);
+ 
+  // ... rest of your code
+});
+ 
+ 
+app.listen(PORT, () => {
+  console.log(`Server is running at http://localhost:${PORT}`);
 });

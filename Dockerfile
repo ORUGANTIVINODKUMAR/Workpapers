@@ -1,49 +1,35 @@
-# syntax=docker/dockerfile:1.4
+# Use an official Node image with Debian slim as a base
+FROM node:18-bullseye-slim
 
-########## Builder stages ##########
-
-# 1) Python deps
-FROM python:3.13-slim AS py-builder
+# 1. Install Python + OS deps (Poppler & Tesseract)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr libtesseract-dev \
+ && apt-get install -y --no-install-recommends \
+      python3 python3-pip \
+      poppler-utils \
+      tesseract-ocr libtesseract-dev \
  && rm -rf /var/lib/apt/lists/*
+
+# 2. Set workdir
 WORKDIR /app
+
+# 3. Install Python deps (cache pip downloads between builds)
 COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --upgrade pip \
+ && pip3 install --no-cache-dir -r requirements.txt
 
-# 2) Node deps
-FROM node:18-alpine AS js-builder
-WORKDIR /app
-COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline
+# 4. Install Node deps (cache npm modules between builds)
+COPY package.json package-lock.json ./
+RUN npm ci --prefer-offline
 
-########## Final image ##########
-
-FROM python:3.13-slim
-RUN apt-get update \
- && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr libtesseract-dev \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-
-# copy in installed packages
-COPY --from=py-builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
-COPY --from=js-builder /app/node_modules/ /app/node_modules/
-
-# copy your code
+# 5. Copy the rest of your code
 COPY . .
 
-# create upload/merged dirs
+# 6. Ensure upload & merged folders exist
 RUN mkdir -p uploads merged
 
-# expose your API port
+# 7. Expose and health-check
 EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3001/health || exit 1
 
-# health-check
-HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:3001/health || exit 1
-
-# start script: run merge step on build if possible, then spin up Node
-ENTRYPOINT ["sh","-c"]
-CMD ["exec node server.js"]
+# 8. Default command: run Python merge, then start Node
+CMD ["sh","-c","python3 merge_with_bookmarks.py uploads merged/output.pdf && exec node server.js"]

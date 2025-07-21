@@ -70,14 +70,14 @@ def extract_text(path: str, page_index: int) -> str:
             opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
             img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
             t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
-            print(f"[OCR full]\n{t3}", file=sys.stderr)
+            #print(f"[OCR full]\n{t3}", file=sys.stderr)
             if len(t3.strip()) > len(text): text = t3
         except Exception:
             traceback.print_exc()
     # PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
+        #print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
         if len(t1.strip()) > len(text): text = t1
     except Exception:
         traceback.print_exc()
@@ -86,7 +86,7 @@ def extract_text(path: str, page_index: int) -> str:
         try:
             reader = PdfReader(path)
             t2 = reader.pages[page_index].extract_text() or ""
-            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
+         #   print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
             if len(t2.strip()) > len(text): text = t2
         except Exception:
             traceback.print_exc()
@@ -102,7 +102,7 @@ def extract_text_from_pdf(file_path: str) -> str:
             for i, page in enumerate(reader.pages):
                 pt = page.extract_text() or ""
                 if pt.strip():
-                    print_phrase_context(pt)
+                    #print_phrase_context(pt)
                     text += f"\n--- Page {i+1} ---\n" + pt
     except Exception as e:
         logger.error(f"Error in full PDF extract {file_path}: {e}")
@@ -728,9 +728,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 except:
                     extracts['PyMuPDF'] = ""
                     
-                for method, txt in extracts.items():
-                    # only dump the slice around our employer-info phrase
-                    print(f"[{method} full]\n{txt}", file=sys.stderr)
+              
 
                 # Collect W-2 employer names across methods
                 info_by_method, names = {}, []

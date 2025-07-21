@@ -3,3 +3,12 @@ venv/
 .env
 *.log
 pdf_merge.log
+# keep ignoring all files in these dirs…
+uploads/
+merged/
+
+# …but make sure we track the folders themselves (and their .gitkeep)
+!uploads/
+!uploads/.gitkeep
+!merged/
+!merged/.gitkeep

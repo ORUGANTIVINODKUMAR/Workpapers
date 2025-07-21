@@ -70,14 +70,14 @@ def extract_text(path: str, page_index: int) -> str:
             opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
             img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
             t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
-            print(f"[OCR full]\n{t3}", file=sys.stderr)
+            #print(f"[OCR full]\n{t3}", file=sys.stderr)
             if len(t3.strip()) > len(text): text = t3
         except Exception:
             traceback.print_exc()
     # PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
+        #print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
         if len(t1.strip()) > len(text): text = t1
     except Exception:
         traceback.print_exc()
@@ -86,7 +86,7 @@ def extract_text(path: str, page_index: int) -> str:
         try:
             reader = PdfReader(path)
             t2 = reader.pages[page_index].extract_text() or ""
-            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
+         #   print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
             if len(t2.strip()) > len(text): text = t2
         except Exception:
             traceback.print_exc()
@@ -117,7 +117,7 @@ def extract_text_from_image(file_path: str) -> str:
         if img.mode!='RGB': img = img.convert('RGB')
         et = pytesseract.image_to_string(img)
         if et.strip():
-            print_phrase_context(et)
+            #print_phrase_context(et)
             text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
         else: text = f"No text in image: {os.path.basename(file_path)}"
     except Exception as e:
@@ -128,7 +128,7 @@ def extract_text_from_image(file_path: str) -> str:
 def classify_text(text: str) -> Tuple[str, str]:
     t = text.lower()
     lower = text.lower()
-     # If page matches any instruction patterns, classify as Others → Unused
+    # If page matches any instruction patterns, classify as Others → Unused
     instruction_patterns = [
     # full “Instructions for Employee…” block (continued from back of Copy C)
     # W-2 instructions
@@ -203,14 +203,10 @@ def classify_text(text: str) -> Tuple[str, str]:
     "box 10. shows the total amount of reimbursements or refunds",
     "future developments. for the latest information about developments related to form 1098-t",
     # 1098-Mortgage 
-    "instructions for payer/borrower",
-    "payer’s/borrower’s taxpayer identification number",
-    "box 1. shows the mortgage interest received",
-    "Box 1. Shows the mortgage interest received by the recipient",
-    "Box 3. Shows the date of the mortgage origination",
-    "Box 5. If an amount is reported in this box",
-    "Box 8. Shows the address or description"
     ]
+    for pat in instruction_patterns:
+        if pat in lower:
+            return "Others", "Unused"
     div_category = [
         "1a total ordinary dividends",
         "1b Qualified dividends Distributions",
@@ -223,25 +219,51 @@ def classify_text(text: str) -> Tuple[str, str]:
     for pat in div_category:
         if pat in lower:
             return "Income", "1099-DIV"
-    for pat in instruction_patterns:
+    #1098-Mortgage form page 1
+    mort_front = [
+        "Refund of overpaid interest",
+        "Mortgage insurance premiums",
+        "Mortgage origination date",
+        "Number of properties securing the morgage",
+        "Address or description of property securing",
+        "form 1098 mortgage",
+        "limits based on the loan amount"
+    ]
+    for pat in mort_front:
+        if pat in lower:
+            return "Expenses", "1098-Mortgage"
+    #1098-Mortgage unused
+    mort_unused = [
+        "instructions for payer/borrower",
+        "payer’s/borrower’s taxpayer identification number",
+        "box 1. shows the mortgage interest received",
+        "Box 1. Shows the mortgage interest received by the recipient",
+        "Box 3. Shows the date of the mortgage origination",
+        "Box 5. If an amount is reported in this box",
+        "Box 8. Shows the address or description"
+        "This information is being provided to you as",
+        "We’re providing the mortgage insurance",
+        
+    ]
+    
+    for pat in mort_unused:
         if pat in lower:
             return "Others", "Unused"
-    # Detect W-2 pages by their header phrases
-    if 'wage and tax statement' in t or ("employer's name" in t and 'address' in t):
-        return 'Income', 'W-2'
     #3) fallback form detectors
     if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
     if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
     if '1099-div' in t: return 'Income', '1099-DIV'
     if 'form 1099-div' in t: return 'Income', '1099-DIV'
-    if '1098' in t and 'mortgage' in t: return 'Expenses', '1098-Mortgage'
     if '1098-t' in t: return 'Expenses', '1098-T'
-    if 'property tax' in t: return 'Expenses', 'Property Tax'
-    if '1098' in t: return 'Expenses', '1098-Other'
     if '1099' in t: return 'Income', '1099-Other'
     if 'donation' in t: return 'Expenses', 'Donation'
     return 'Unknown', 'Unused'
 
+    
+    # Detect W-2 pages by their header phrases
+    if 'wage and tax statement' in t or ("employer's name" in t and 'address' in t):
+        return 'Income', 'W-2'
+    
 # ── Parse W-2 fields bookmarks
 def normalize_entity_name(raw: str) -> str:
     """
@@ -267,9 +289,6 @@ def normalize_entity_name(raw: str) -> str:
 
     # 5. Standardize whitespace
     return ' '.join(collapsed.split()).strip()
-
-import re
-from typing import Dict, List
 
 def parse_w2(text: str) -> Dict[str, str]:
     """
@@ -393,7 +412,6 @@ def parse_w2(text: str) -> Dict[str, str]:
         'employee_address': 'N/A'
     }
 
-
 def print_w2_summary(info: Dict[str, str]):
     print("\n=== W-2 Summary ===\n")
     print(f"Employer: {info['employer_name']}, Address: {info['employer_address']}, EIN: {info['ein']}")
@@ -408,8 +426,9 @@ def print_w2_summary(info: Dict[str,str]):
 # ___ 1099-INTBookmark helper
 def extract_1099int_bookmark(text: str) -> str:
     """
-    1) BANK OF AMERICA override
-    2) After your trigger patterns:
+    1) US Bank NA override (normalize USS to US)
+    2) BANK OF AMERICA override
+    3) After your trigger patterns:
        • skip blanks, skip any TIN/RTN lines
        • if underscores-only, return that
        • else:
@@ -421,12 +440,16 @@ def extract_1099int_bookmark(text: str) -> str:
     """
     lines: List[str] = text.splitlines()
     lower = text.lower()
-    # 1) BANK OF AMERICA override
+    # 1) US Bank NA override (including USS Bank NA)
+    if "uss bank na" in lower or "us bank na" in lower or "u s bank na" in lower:
+        # Normalize any variant to "US Bank NA"
+        return "US Bank NA"
+    # 2) BANK OF AMERICA override
     if "bank of america" in lower:
         for L in lines:
             if "bank of america" in L.lower():
                 return re.sub(r"[^\w\s]+$", "", L.strip())
-    # 2) trigger patterns
+    # 3) trigger patterns
     patterns = [
         "Interest income Income",
         "ZIP or foreign postal code, and telephone no.",
@@ -447,11 +470,11 @@ def extract_1099int_bookmark(text: str) -> str:
                 cleaned = re.sub(
                     r"(?i)\s*reel\s+form\s+1099-?int\b.*$", "", s
                 )
-                # b) strip trailing “, N.A” (with or without dot)
+                # b) strip trailing ", N.A" (with or without dot)
                 cleaned = re.sub(r",\s*n\.a\.?$", "", cleaned, flags=re.IGNORECASE)
                 # c) strip leftover punctuation or stray quotes
                 cleaned = re.sub(r"[^\w\s]+$", "", cleaned)
-                # d) **new**: drop any final single-character token
+                # d) drop any final single-character token
                 cleaned = re.sub(r"\b\w\b$", "", cleaned).strip()
                 return cleaned
     # fallback
@@ -511,25 +534,112 @@ def extract_1099div_bookmark(text: str) -> str:
     # 3) Ultimate fallback
     return "1099-DIV"
 # 1098-Mortgage
+def clean_bookmark(name: str) -> str:
+    # Remove any trailing junk starting from 'Interest' and strip whitespace
+    cleaned = re.sub(r"\bInterest.*$", "", name, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def extract_1098mortgage_bookmark(text: str) -> str:
     """
-    Grab the lender’s name for Form 1098-Mortgage by:
-      1) Scanning for the RECIPIENT’S/LENDER’S header line
-      2) Skipping blanks
-      3) Returning the very next non-blank line (stripping trailing junk)
-      4) Fallback to "1098-Mortgage"
+    1) Dovenmuehle Mortgage override
+    2) Huntington National Bank override
+    3) UNITED NATIONS FCU override
+    4) LOANDEPOT COM LLC override
+    5) "Limits based" header override (grab first non-empty next line, strip any 'and' clause)
+    6) FCU override
+    7) PAYER(S)/BORROWER(S) override
+    8) RECIPIENT’S/LENDER’S header override
+    9) Fallback to "1098-Mortgage"
+    After extraction, cleans up any trailing junk starting from 'Interest'.
     """
-    lines       = text.splitlines()
+    lines: List[str] = text.splitlines()
     lower_lines = [L.lower() for L in lines]
 
-    header = "recipient’s/lender’s name"
-    for i, L in enumerate(lower_lines):
-        if header in L and "street address" in L:
+    # 1) Dovenmuehle Mortgage override
+    for L in lines:
+        if re.search(r"dovenmuehle\s+mortgage", L, flags=re.IGNORECASE):
+            m = re.search(r"(Dovenmuehle Mortgage, Inc)", L, flags=re.IGNORECASE)
+            name = m.group(1) if m else re.sub(r"[^\w\s,]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 2) Huntington National Bank override
+    for L in lines:
+        if re.search(r"\bhuntington\s+national\s+bank\b", L, flags=re.IGNORECASE):
+            m = re.search(r"\b(?:The\s+)?Huntington\s+National\s+Bank\b", L, flags=re.IGNORECASE)
+            name = m.group(0) if m else re.sub(r"[^\w\s]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 3) UNITED NATIONS FCU override
+    for L in lines:
+        if re.search(r"\bunited\s+nations\s+fcu\b", L, flags=re.IGNORECASE):
+            return clean_bookmark("UNITED NATIONS FCU")
+
+    # 4) LOANDEPOT COM LLC override
+    for L in lines:
+        if re.search(r"\bloan\s*depot\s*com\s*llc\b", L, flags=re.IGNORECASE):
+            m = re.search(r"\bloan\s*depot\s*com\s*llc\b", L, flags=re.IGNORECASE)
+            name = m.group(0) if m else re.sub(r"[^\w\s]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 5) "Limits based" header override (grab first non-blank NEXT line after match, clean smartly)
+    for i, line in enumerate(lines):
+        if "limits based on the loan amount" in line.lower():
+            # Found the trigger line — look for next non-empty line
+            for j in range(i + 1, len(lines)):
+                candidate = lines[j].strip()
+                if not candidate:
+                    continue
+
+                # Normalize fancy quotes and weird spacing
+                candidate = candidate.replace("‘", "'").replace("’", "'").replace("\u00A0", " ")
+                
+                # Strip after 'Interest' if present
+                candidate = re.sub(r"\bInterest.*$", "", candidate, flags=re.IGNORECASE)
+
+                # Optionally, strip after 'and' if appears to be extra text
+                candidate = re.split(r"\band\b", candidate, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+
+                # Final trailing punctuation cleanup
+                candidate = re.sub(r"[^\w\s]+$", "", candidate)
+
+                return candidate
+
+
+    # 6) FCU override
+    for L in lines:
+        if re.search(r"\bfcu\b", L, flags=re.IGNORECASE):
+            m = re.search(r"(.*?FCU)\b", L, flags=re.IGNORECASE)
+            name = m.group(1) if m else re.sub(r"[^\w\s]+$", "", L.strip())
+            return clean_bookmark(name)
+
+    # 7) PAYER(S)/BORROWER(S) override
+    for i, header in enumerate(lower_lines):
+        if "payer" in header and "borrower" in header:
+            for cand in lines[i+1:]:
+                s = cand.strip()
+                if not s or len(set(s)) == 1 or re.search(r"[\d\$]|page", s, flags=re.IGNORECASE):
+                    continue
+                raw = re.sub(r"[^\w\s]+$", "", s)
+                raw = re.sub(r"(?i)\s+d/b/a\s+.*$", "", raw).strip()
+                return clean_bookmark(raw)
+
+    # 8) RECIPIENT’S/LENDER’S header override
+    #    catch any line containing “recipient’s/lender’s” (ASCII or curly quotes),
+    #    then use the very next non-blank line as the mortgage company name.
+    for i, L in enumerate(lines):
+        if re.search(r"recipient.?s\s*/\s*lender.?s", L, flags=re.IGNORECASE):
             for j in range(i+1, len(lines)):
                 cand = lines[j].strip()
-                if cand:
-                    return re.sub(r"[^\w\s]+$", "", cand)
+                if not cand:
+                    continue
+                # strip trailing punctuation
+                name = re.sub(r"[^\w\s]+$", "", cand)
+                return clean_bookmark(name)
+
+    # 9) fallback
     return "1098-Mortgage"
+
 def group_by_type(entries: List[Tuple[str,int,str]]) -> Dict[str,List[Tuple[str,int,str]]]:
     d=defaultdict(list)
     for e in entries: d[e[2]].append(e)
@@ -552,7 +662,7 @@ def print_pdf_bookmarks(path: str):
         logger.error(f"Error reading bookmarks from {path}: {e}")
 
 # ── Merge + bookmarks + multi-method extraction
-nek = None
+nek = None 
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):
     # Prevent storing merged file inside input_dir
@@ -561,12 +671,19 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     if abs_output.startswith(abs_input + os.sep):
         abs_output = os.path.join(os.path.dirname(abs_input), os.path.basename(abs_output))
         logger.warning(f"Moved output outside: {abs_out}")
-
-    files = sorted(
-        f for f in os.listdir(abs_input)
-        if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
-        and f != os.path.basename(abs_output)
+    all_files = sorted(
+       f for f in os.listdir(abs_input)
+       if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
+       and f != os.path.basename(abs_output)
     )
+   # remove any zero‐byte files so PdfReader never sees them
+    files = []
+    for f in all_files:
+        p = os.path.join(abs_input, f)
+        if os.path.getsize(p) == 0:
+           logger.warning(f"Skipping empty file: {f}")
+           continue
+        files.append(f)
     logger.info(f"Found {len(files)} files in {abs_input}")
 
     income, expenses, others = [], [], []
@@ -583,7 +700,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # ── New: print extraction header like in your past code
                 print("=" * 400, file=sys.stderr)
                 text = extract_text(path, i)
-                print(f"📄 {fname} p{i+1} → {text or '[NO TEXT]'}", file=sys.stderr)
+                #print(f"📄 {fname} p{i+1} → {text or '[NO TEXT]'}", file=sys.stderr)
 
                 print("=" * 400, file=sys.stderr)
 
@@ -610,11 +727,10 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     doc.close()
                 except:
                     extracts['PyMuPDF'] = ""
-
-                for method, txt in extracts.items():
+                    
+                #for method, txt in extracts.items():
                     # only dump the slice around our employer-info phrase
-                    print(f"[{method} full]\n{txt}", file=sys.stderr)
-
+                    #print(f"[{method} full]\n{txt}", file=sys.stderr)
 
                 # Collect W-2 employer names across methods
                 info_by_method, names = {}, []
@@ -702,6 +818,9 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             except Exception:
                 print(f"Temp write failed: {p} p{idx+1}", file=sys.stderr)
                 traceback.print_exc()
+                print(f"⚠️  Temp write failed for {p!r} (page {idx+1}); skipping.", file=sys.stderr)
+                traceback.print_exc()
+                return 
             tmp_path = tmp.name
         with open(tmp_path,'rb') as fh:
             merger.append(fileobj=fh)

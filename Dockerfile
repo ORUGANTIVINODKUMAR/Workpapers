@@ -1,32 +1,31 @@
-# 1. Base image
-FROM python:3.13-slim
+FROM node:22.17.0-slim
  
-# 2. Install OS-level deps (Tesseract, Poppler for pdf2image, Node.js/npm)
+# Install system dependencies including Tesseract and Python
 RUN apt-get update \
 && apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      libtesseract-dev \
-      poppler-utils \
-      nodejs \
-      npm \
+        python3 python3-pip python3-venv \
+        tesseract-ocr libtesseract-dev libleptonica-dev \
+        tesseract-ocr-eng \
+&& apt-get clean \
 && rm -rf /var/lib/apt/lists/*
  
-# 3. Set working directory
-WORKDIR /opt/render/project/src
+WORKDIR /app
  
-# 4. Copy only Node dependency manifests, install JS deps
-COPY package.json package-lock.json ./
-RUN npm install
+COPY requirements.txt package.json package-lock.json ./
  
-# 5. Copy only Python dependency list, install Python deps
-COPY requirements.txt ./
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
-# 6. Copy the rest of your application code
+# Use virtualenv for Python dependencies
+RUN python3 -m venv /venv \
+&& /venv/bin/pip install --no-cache-dir -r requirements.txt \
+&& npm ci
+ 
+# Ensure the venv's bin directory is in the path
+ENV PATH="/venv/bin:$PATH"
+ 
 COPY . .
  
-# 7. Make sure your upload & merged folders exist
-RUN mkdir -p uploads merged
+ENV PORT=${PORT:-3000}
  
-# 8. At runtime: run your Python merge script, then start your Node server
-CMD ["/bin/bash", "-c", "python merge_with_bookmarks.py uploads merged/output.pdf && node server.js"]
+CMD which tesseract \
+&& mkdir -p uploads merged \
+&& python3 merge_with_bookmarks.py uploads merged/output.pdf \
+&& node server.js

@@ -102,7 +102,7 @@ def extract_text_from_pdf(file_path: str) -> str:
             for i, page in enumerate(reader.pages):
                 pt = page.extract_text() or ""
                 if pt.strip():
-                    print_phrase_context(pt)
+                    #print_phrase_context(pt)
                     text += f"\n--- Page {i+1} ---\n" + pt
     except Exception as e:
         logger.error(f"Error in full PDF extract {file_path}: {e}")
@@ -117,7 +117,7 @@ def extract_text_from_image(file_path: str) -> str:
         if img.mode!='RGB': img = img.convert('RGB')
         et = pytesseract.image_to_string(img)
         if et.strip():
-            #print_phrase_context(et)
+            print_phrase_context(et)
             text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
         else: text = f"No text in image: {os.path.basename(file_path)}"
     except Exception as e:

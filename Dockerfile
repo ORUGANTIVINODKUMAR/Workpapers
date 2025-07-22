@@ -3,9 +3,9 @@ FROM node:22.17.0-slim
 # Install system dependencies including Tesseract and Python
 RUN apt-get update \
 && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv \
-        tesseract-ocr libtesseract-dev libleptonica-dev \
-        tesseract-ocr-eng \
+      python3 python3-pip python3-venv \
+      tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
+      poppler-utils ghostscript fonts-dejavu \
 && apt-get clean \
 && rm -rf /var/lib/apt/lists/*
  

@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     tesseract-ocr tesseract-ocr-eng libtesseract-dev libleptonica-dev \
     libglib2.0-0 libjpeg62-turbo libpng16-16 libopenjp2-7 zlib1g \
-    apt-get install -y poppler-utils && \
+    poppler-utils && \
     libgl1 ghostscript fonts-dejavu \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

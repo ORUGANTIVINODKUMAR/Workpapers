@@ -27,7 +27,9 @@ RUN python3 -m venv $VENV_PATH \
 && $VENV_PATH/bin/pip install --upgrade pip \
 && $VENV_PATH/bin/pip install --no-cache-dir -r requirements.txt \
 && npm ci --omit=dev
- 
+
+# (Hardening) Fail fast if PyPDF2 is missing
+RUN $VENV_PATH/bin/python -c "import PyPDF2; print('PyPDF2 OK')"
 # App source
 COPY . .
  
@@ -38,6 +40,8 @@ RUN mkdir -p /app/uploads /app/merged
 # RUN which tesseract && echo "Tesseract OK"
  
 # Start: run merge once (ignore failure if no files), then start Node
-CMD bash -c 'mkdir -p uploads merged; \
-             python3 merge_with_bookmarks.py uploads merged/output.pdf || true; \
-             node server.js'
+# Debug info + start
+CMD bash -lc 'which python; python -V; pip list | grep PyPDF2; \
+              mkdir -p uploads merged; \
+              python merge_with_bookmarks.py uploads merged/output.pdf || true; \
+              node server.js'

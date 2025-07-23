@@ -1,31 +1,42 @@
 FROM node:22.17.0-slim
- 
-# Install system dependencies including Tesseract and English language data
+
+# 1) Env vars
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VENV_PATH=/venv \
+    PATH="/venv/bin:$PATH" \
+    PORT=3000
+
+# 2) System deps
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3 python3-pip \
-        tesseract-ocr libtesseract-dev libleptonica-dev \
-        tesseract-ocr-eng \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
- 
+ && apt-get install -y --no-install-recommends \
+      python3 python3-pip python3-venv \
+      tesseract-ocr tesseract-ocr-eng libtesseract-dev libleptonica-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
- 
-# Copy only dependency manifests first to leverage Docker cache
+
+# 3) Copy manifests
 COPY requirements.txt package.json package-lock.json ./
- 
-# Install Python and Node dependencies
-RUN pip3 install --no-cache-dir -r requirements.txt \
-    && npm ci
- 
-# Copy the rest of the application code
+
+# 4) Create venv and install deps
+RUN python3 -m venv $VENV_PATH \
+ && $VENV_PATH/bin/pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt \
+ && npm ci --omit=dev
+
+# 5) Optional: fail fast if PyPDF2 missing
+RUN python -c "import PyPDF2; print('PyPDF2 OK')"
+
+# 6) Copy the rest
 COPY . .
- 
-# Expose port and set environment variable
-ENV PORT=${PORT:-3000}
- 
-# Verify tesseract is installed, run OCR script, then start Node server
-CMD which tesseract \
-    && mkdir -p uploads merged \
-&& python3 merge_with_bookmarks.py uploads merged/output.pdf \
-    && node server.js
+
+# 7) Ensure dirs exist (can also do at runtime)
+RUN mkdir -p /app/uploads /app/merged
+
+# 8) Start command (shows debug info once)
+CMD bash -lc 'which python; python -V; pip list | grep PyPDF2; \
+              mkdir -p uploads merged; \
+              python merge_with_bookmarks.py uploads merged/output.pdf || true; \
+              node server.js'

@@ -6,6 +6,7 @@ RUN apt-get update \
     python3 python3-venv python3-pip \
     tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
     poppler-utils \
+ && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

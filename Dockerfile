@@ -20,7 +20,10 @@ RUN python3 -m venv /opt/venv \
 ENV PATH="/opt/venv/bin:${PATH}"
 COPY . .
 
-ENV PORT=${PORT:-3000}
+ARG PORT=3000
+ENV PORT=$PORT
+EXPOSE $PORT
+
 
 CMD which tesseract \
  && pdfinfo -v \

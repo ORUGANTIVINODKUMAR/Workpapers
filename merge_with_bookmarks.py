@@ -670,7 +670,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     abs_output = os.path.abspath(output_pdf)
     if abs_output.startswith(abs_input + os.sep):
         abs_output = os.path.join(os.path.dirname(abs_input), os.path.basename(abs_output))
-        logger.warning(f"Moved output outside: {abs_out}")
+        logger.warning(f"Moved output outside input_dir. Using: {abs_output}")
     all_files = sorted(
        f for f in os.listdir(abs_input)
        if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
@@ -685,6 +685,10 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
            continue
         files.append(f)
     logger.info(f"Found {len(files)} files in {abs_input}")
+    # --- Early exit if nothing to merge ---
+    if not files:
+        logger.error("No PDFs/images found in %s", abs_input)
+        sys.exit(2)   # or: return 2 and sys.exit() in __main__
 
     income, expenses, others = [], [], []
     # what bookmarks we want in workpapaer shoudl be add in this
@@ -928,9 +932,13 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
 
 # ── CLI
 if __name__=='__main__':
-    import argparse
+    import argparse, logging, sys
     p = argparse.ArgumentParser(description="Merge PDFs with robust text extraction and cleanup")
     p.add_argument('input_dir', help="Folder containing PDFs to merge")
     p.add_argument('output_pdf', help="Path for the merged PDF (outside input_dir)")
     args = p.parse_args()
-    merge_with_bookmarks(args.input_dir, args.output_pdf)
+    try:
+        merge_with_bookmarks(args.input_dir, args.output_pdf)
+    except Exception:
+        logging.exception("Merge ailed")
+        sys.exit(1)

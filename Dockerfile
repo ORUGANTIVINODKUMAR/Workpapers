@@ -1,43 +1,31 @@
-# Base image with Node
-FROM node:22-slim
+FROM node:22.17.0-slim
  
-# Environment
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    VENV_PATH=/venv \
-    PATH="/venv/bin:$PATH" \
-    PORT=3000
- 
-# System deps: Python + Tesseract (+ libs PyMuPDF/Pillow need)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv \
-    tesseract-ocr tesseract-ocr-eng libtesseract-dev libleptonica-dev \
-    libglib2.0-0 libjpeg62-turbo libpng16-16 libopenjp2-7 zlib1g \
-    libgl1 ghostscript fonts-dejavu \
-&& apt-get clean \
-&& rm -rf /var/lib/apt/lists/*
+# Install system dependencies including Tesseract and English language data
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 python3-pip \
+        tesseract-ocr libtesseract-dev libleptonica-dev \
+        tesseract-ocr-eng \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
  
 WORKDIR /app
  
-# Copy manifests first for better layer caching
+# Copy only dependency manifests first to leverage Docker cache
 COPY requirements.txt package.json package-lock.json ./
  
-# Python & Node deps (inside venv → avoids PEP 668 issues)
-RUN python3 -m venv $VENV_PATH \
-&& $VENV_PATH/bin/pip install --upgrade pip \
-&& $VENV_PATH/bin/pip install --no-cache-dir -r requirements.txt \
-&& npm ci --omit=dev
+# Install Python and Node dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt \
+    && npm ci
  
-# App source
+# Copy the rest of the application code
 COPY . .
  
-# Create upload dirs at build or runtime (safer at runtime)
-RUN mkdir -p /app/uploads /app/merged
+# Expose port and set environment variable
+ENV PORT=${PORT:-3000}
  
-# Optional: show binaries
-# RUN which tesseract && echo "Tesseract OK"
- 
-# Start: run merge once (ignore failure if no files), then start Node
-CMD bash -c 'mkdir -p uploads merged; \
-             python3 merge_with_bookmarks.py uploads merged/output.pdf || true; \
-             node server.js'
+# Verify tesseract is installed, run OCR script, then start Node server
+CMD which tesseract \
+    && mkdir -p uploads merged \
+&& python3 merge_with_bookmarks.py uploads merged/output.pdf \
+    && node server.js

@@ -1,42 +1,33 @@
 FROM node:22.17.0-slim
 
-# Env
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    VENV_PATH=/venv \
-    PATH="/venv/bin:$PATH" \
-    PORT=3000
-
-# System deps
+# Install system deps, including venv support
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-pip python3-venv \
-      tesseract-ocr tesseract-ocr-eng libtesseract-dev libleptonica-dev \
+      python3 python3-venv python3-pip \
+      tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy manifests first
+# Copy manifests
 COPY requirements.txt package.json package-lock.json ./
 
-# Python + Node deps
-RUN python3 -m venv $VENV_PATH \
- && $VENV_PATH/bin/pip install --upgrade pip \
+# Create a venv, install Python deps into it, then Node deps
+RUN python3 -m venv /opt/venv \
+ && . /opt/venv/bin/activate \
  && pip install --no-cache-dir -r requirements.txt \
- && npm ci --omit=dev
+ && npm ci
 
-# Optional: fail fast if PyPDF2 missing
-RUN python -c "import PyPDF2; print('PyPDF2 OK')"
+# Make the venv’s binaries available to all subsequent steps
+ENV PATH="/opt/venv/bin:${PATH}"
 
-# Copy app
+# Copy the rest of your code
 COPY . .
 
-# Create dirs (safe to also do at runtime)
-RUN mkdir -p /app/uploads /app/merged
+ENV PORT=${PORT:-3000}
 
-# Start
-CMD bash -lc 'which python; python -V; \
-              mkdir -p uploads merged; \
-              python merge_with_bookmarks.py uploads merged/output.pdf || true; \
-              node server.js'
+CMD which tesseract \
+ && mkdir -p uploads merged \
+ && python3 merge_with_bookmarks.py uploads merged/output.pdf \
+ && node server.js

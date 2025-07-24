@@ -56,11 +56,6 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
     outputPath
   ]);
 
-  const timeout = setTimeout(() => {
-    console.error(`[TIMEOUT-${requestId}] Python process hung, killing it.`);
-    python.kill('SIGKILL');
-    }, 30000); // 30 seconds
-
   python.on('close', code => {
     clearTimeout(timeout);
   // continue as usual...

@@ -8,47 +8,48 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Directories for uploads and merged PDFs
+// ─── Directory setup ───────────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const MERGED_DIR = path.join(__dirname, 'merged');
 [UPLOAD_DIR, MERGED_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`Created missing directory: ${dir}`);
+    console.log(`[INIT] Created missing directory: ${dir}`);
   }
 });
 
 app.use(cors());
 app.use(express.static('public'));
 
-// ─── Health‑check endpoint ──────────────────────────────────────────────────────
+// ─── Health-check ──────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// ─── Multer storage config ───────────────────────────────────────────────────────
+// ─── Multer config ─────────────────────────────────────────────────
 const storage = multer.diskStorage({
-  destination: (req, file, cd) => cd(null, UPLOAD_DIR),
-  filename:    (req, file, cd) => {
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
     const safeName = `${Date.now()}-${file.originalname}`;
-    cd(null, safeName);
+    cb(null, safeName);
   }
 });
 const upload = multer({ storage });
 
-// ─── Merge route with logging & timing ──────────────────────────────────────────
+// ─── /merge route with debug-friendly timing ───────────────────────
 app.post('/merge', upload.array('pdfs'), (req, res) => {
+  const requestId = Date.now();
+  const timerLabel = `[/merge] total-${requestId}`;
+
   console.log(`[/merge] request received at ${new Date().toISOString()}`);
-  console.time('[/merge] total');
+  console.time(timerLabel);
 
   const inputDir = UPLOAD_DIR;
-  const outputFilename = `merged_${Date.now()}.pdf`;
+  const outputFilename = `merged_${requestId}.pdf`;
   const outputPath = path.join(MERGED_DIR, outputFilename);
 
-  // Log each uploaded file path
-  req.files.forEach(file => console.log('[UPLOAD]', file.path));
+  req.files.forEach(file => console.log(`[UPLOAD-${requestId}]`, file.path));
 
-  // Spawn the Python script (python should point to your venv’s interpreter)
   const python = spawn('python', [
     'merge_with_bookmarks.py',
     inputDir,
@@ -56,19 +57,21 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
   ]);
 
   python.stdout.on('data', data => {
-    console.log(`[PY-OUT] ${data}`.trim());
+    console.log(`[PY-OUT-${requestId}] ${data}`.trim());
   });
+
   python.stderr.on('data', data => {
-    console.error(`[PY-ERR] ${data}`.trim());
+    console.error(`[PY-ERR-${requestId}] ${data}`.trim());
   });
 
   python.on('close', code => {
-    console.timeEnd('[/merge] total');
+    console.timeEnd(timerLabel);
     if (code === 0) {
-      // Send the merged PDF back
       res.download(outputPath, outputFilename, err => {
-        if (err) console.error('[DOWNLOAD-ERR]', err);
-        // Optionally: cleanup here
+        if (err) {
+          console.error(`[DOWNLOAD-ERR-${requestId}]`, err);
+        }
+        // Optionally handle cleanup if needed
       });
     } else {
       res.status(500).send('Failed to merge PDFs with bookmarks');
@@ -76,7 +79,7 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
   });
 });
 
-// ─── Server startup ─────────────────────────────────────────────────────────────
+// ─── Start server ───────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT} at ${new Date().toISOString()}`);
 });

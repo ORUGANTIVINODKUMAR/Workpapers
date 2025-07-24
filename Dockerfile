@@ -1,30 +1,33 @@
 FROM node:22.17.0-slim
- 
-# ---- System deps (python, tesseract, poppler for pdfinfo) ----
+
+# ---- Install system dependencies ----
 RUN apt-get update \
-&& apt-get install -y --no-install-recommends \
+ && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
+    poppler-utils ghostscript \
     tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
-&& rm -rf /var/lib/apt/lists/*
- 
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- Set environment variables for debugging and reliability ----
+ENV PYTHONUNBUFFERED=1
+ENV VENV_PATH=/opt/venv
+ENV PATH="$VENV_PATH/bin:$PATH"
+
 WORKDIR /app
- 
-# ---- Install deps ----
-COPY requirements.txt package.json package-lock.json ./
-RUN python3 -m venv /opt/venv \
-&& /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
-&& npm ci --omit=dev
- 
-# Make venv bins available
-ENV PATH="/opt/venv/bin:${PATH}"
- 
-# ---- App code ----
+
+# ---- Copy application source code BEFORE installing dependencies ----
 COPY . .
- 
-# ---- Runtime config ----
+
+# ---- Create virtual environment and install dependencies ----
+RUN python3 -m venv $VENV_PATH \
+ && $VENV_PATH/bin/pip install --no-cache-dir --upgrade pip setuptools wheel \
+ && pip install --no-cache-dir -r requirements.txt \
+ && npm ci --omit=dev
+
+# ---- Expose your app port ----
 ARG PORT=3000
 ENV PORT=$PORT
 EXPOSE $PORT
- 
-# ---- Start only Node. Python is spawned by your upload route ----
+
+# ---- Start the Node.js server ----
 CMD ["node", "server.js"]

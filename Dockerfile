@@ -4,6 +4,7 @@ FROM node:22.17.0-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
+    poppler-utils \
     tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 

@@ -87,4 +87,4 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server is running at http://localhost:${PORT}`);
 });
-server.js code
+

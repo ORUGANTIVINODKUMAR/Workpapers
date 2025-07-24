@@ -1,50 +1,26 @@
-# ┌── Stage 1: Python builder
-FROM python:3.11-slim AS python-builder
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      poppler-utils \
-      tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
- && rm -rf /var/lib/apt/lists/*
-
-# create virtualenv & install your Python requirements
-ENV VENV_PATH=/opt/venv
-RUN python3 -m venv $VENV_PATH
-COPY requirements.txt .
-RUN $VENV_PATH/bin/pip install --no-cache-dir -r requirements.txt
-
-
-# ┌── Stage 2: Node builder
-FROM node:22.17.0-slim AS node-builder
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-
-# ┌── Stage 3: Final runtime image
 FROM node:22.17.0-slim
 
-# install Python runtime + only the OS libs you need at runtime
+# 1) Install OS + Python + OCR deps
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-venv python3-pip \
+      python3 python3-pip \
       poppler-utils \
       tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
+ && ln -s /usr/bin/python3 /usr/bin/python \   # ensure "python" is available
  && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /app
 
-# pull in your pre-built venv & node_modules
-COPY --from=python-builder /opt/venv /opt/venv
-COPY --from=node-builder /app/node_modules ./node_modules
+# 2) Copy and install Python & Node dependencies
+COPY requirements.txt package.json package-lock.json ./
+RUN pip3 install --no-cache-dir -r requirements.txt \
+ && npm ci --omit=dev
 
-# copy the rest of your app
+# 3) Copy your app code
 COPY . .
 
+# 4) Expose & run
 ARG PORT=3000
 ENV PORT=$PORT
 EXPOSE $PORT
-
-# only “node server.js” runs at container start—no more installs here!
 CMD ["node", "server.js"]

@@ -1,31 +1,29 @@
-FROM node:22.17.0-slim
+ # Stage 3: Final runtime image
+ FROM node:22.17.0-slim
 
-# ---- System deps (python, tesseract, poppler for pdfinfo) ----
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip \
-    poppler-utils \
-    tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
- && rm -rf /var/lib/apt/lists/*
+# Install Python 3 runtime (so /opt/venv/bin/python works)
+ RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      python3 python3-venv python3-pip \
+      poppler-utils \
+      tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
+  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+ ENV PATH="/opt/venv/bin:${PATH}"
 
-# ---- Install deps ----
-COPY requirements.txt package.json package-lock.json ./
-RUN python3 -m venv /opt/venv \
- && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
- && npm ci --omit=dev
+ WORKDIR /app
 
-# Make venv bins available
-ENV PATH="/opt/venv/bin:${PATH}"
+ # Bring in the pre‑built Python venv
+ COPY --from=python-builder /opt/venv /opt/venv
 
-# ---- App code ----
-COPY . .
+ # Bring in pre‑built node_modules
+ COPY --from=node-builder /app/node_modules ./node_modules
 
-# ---- Runtime config ----
-ARG PORT=3000
-ENV PORT=$PORT
-EXPOSE $PORT
+ # Copy your application code
+ COPY . .
 
-# ---- Start only Node. Python is spawned by your upload route ----
-CMD ["node", "server.js"]
+ ARG PORT=3000
+ ENV PORT=$PORT
+ EXPOSE $PORT
+
+ CMD ["node", "server.js"]

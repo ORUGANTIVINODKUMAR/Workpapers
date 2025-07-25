@@ -18,7 +18,8 @@ RUN python3 -m venv /opt/venv \
  
 # Make venv bins available
 ENV PATH="/opt/venv/bin:${PATH}"
-ENV PYTHONUNBUFFERED=1            # ← ensure no stdout/stderr buffering
+# ← ensure no stdout/stderr buffering
+ENV PYTHONUNBUFFERED=1            
 # ---- App code ----
 COPY . .
  

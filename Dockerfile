@@ -1,15 +1,16 @@
 FROM node:22.17.0-slim
- 
-# ---- System deps (python, tesseract, poppler for pdfinfo) ----
-RUN apt-get update \+ && apt-get install -y --no-install-recommends \
-&& apt-get install -y --no-install-recommends \
-     python3 python3-venv python3-pip \
-     poppler-utils ghostscript \        
-     # ← poppler-utils (+gs) for pdfinfo/pdftoppm
-     tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
-&& rm -rf /var/lib/apt/lists/*
+
+# System deps: Python3, Poppler+Ghostscript (for PDF), Tesseract
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip \
+        poppler-utils ghostscript \
+        tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# …rest of your Dockerfile…
+
  
 # ---- Install deps ----
 COPY requirements.txt package.json package-lock.json ./

@@ -1,13 +1,15 @@
-# Node.js dependencies
 node_modules/
-
-# Python virtualenv
 venv/
-
-# Build & runtime artifacts
-merged/
-output.txt
+.env
 *.log
-
-# OS files
-.DS_Store
+pdf_merge.log
+# keep ignoring all files in these dirs…
+uploads/
+merged/
+ 
+# …but make sure we track the folders themselves (and their .gitkeep)
+!uploads/
+!uploads/.gitkeep
+!merged/
+!merged/.gitkeep
+.gitinoree

@@ -49,7 +49,7 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
     console.log(file.path);
   });
   const pythonPath = 'C:\\Python312\\python.exe';
-  const python = spawn('python', ['merge_with_bookmarks.py', inputDir, outputPath]);
+  const python = spawn('python3', ['merge_with_bookmarks.py', inputDir, outputPath]);
  
   python.stdout.on('data', data => {
     console.log(`[PY-OUT] ${data}`.trim());

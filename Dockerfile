@@ -4,6 +4,7 @@ FROM node:22.17.0-slim AS builder
 # Install build‑time deps: Python tooling, Poppler, Ghostscript, Tesseract
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      python3 python3-pip \
       python3 python3-venv python3-pip \
       poppler-utils ghostscript \
       tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \

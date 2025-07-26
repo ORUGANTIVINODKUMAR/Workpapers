@@ -1,7 +1,6 @@
 # ---- Builder ----
 FROM node:22.17.0-slim AS builder
 
-# Install build‑time deps: Python tooling, Poppler, Ghostscript, Tesseract
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       python3 python3-venv python3-pip \
@@ -10,22 +9,21 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# Copy manifest files and install Python & Node dependencies
 COPY requirements.txt package.json package-lock.json ./
+
+# Create a venv *and* a `python` shim,
+# then install Python & Node deps
 RUN python3 -m venv /opt/venv \
+ && ln -s /opt/venv/bin/python3 /opt/venv/bin/python \
  && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
  && npm ci --omit=dev
 
-# Copy your application source
 COPY . .
-
-
 
 # ---- Runtime ----
 FROM node:22.17.0-slim AS runtime
 
-# Only bring in Poppler & Ghostscript runtimes (no dev headers) + Tesseract runtimes
+# Poppler, Ghostscript, Tesseract runtimes only
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       poppler-utils \
@@ -35,18 +33,15 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Copy the pre‑built virtualenv and app files from builder
+# Bring in the venv (with its `python` shim) + your app
 COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /app /app
+COPY --from=builder /app      /app
 
-# Expose your venv binaries and disable Python buffering for real‑time logs
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1
 
-# Runtime port
 ARG PORT=3000
 ENV PORT=$PORT
 EXPOSE $PORT
 
-# Launch only Node; Python gets spawned by your upload/merge route
 CMD ["node", "server.js"]

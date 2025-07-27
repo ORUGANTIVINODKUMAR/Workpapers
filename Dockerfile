@@ -34,7 +34,7 @@ FROM node:22.17.0-slim AS runtime
 # Install only the runtime bits of Poppler, Ghostscript, Tesseract
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3-minimal python-is-python3 \
+      python3 python3-pip \
       poppler-utils \
       ghostscript \
       tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \

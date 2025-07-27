@@ -48,9 +48,10 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
   req.files.forEach(file => {
     console.log(file.path);
   });
-  const pythonPath = 'C:\\Python312\\python.exe';
-  const python = spawn('python3', ['merge_with_bookmarks.py', inputDir, outputPath]);
- 
+    // in Docker, our venv lives at /opt/venv, so invoke that directly:
+  const pythonBin = '/opt/venv/bin/python';
+  const python = spawn(pythonBin, ['merge_with_bookmarks.py', inputDir, outputPath]);
+
   python.stdout.on('data', data => {
     console.log(`[PY-OUT] ${data}`.trim());
   });

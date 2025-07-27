@@ -69,6 +69,7 @@ def extract_text(path: str, page_index: int) -> str:
         try:
             opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
             img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
+            logger.debug(f"Finished OCR convert_from_path: {path} page {page_index+1}")
             t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
             #print(f"[OCR full]\n{t3}", file=sys.stderr)
             if len(t3.strip()) > len(text): text = t3
@@ -85,6 +86,7 @@ def extract_text(path: str, page_index: int) -> str:
     if len(text.strip()) < OCR_MIN_CHARS:
         try:
             reader = PdfReader(path)
+            logger.debug(f"Finished OCR convert_from_path: {path} page {page_index+1}")
             t2 = reader.pages[page_index].extract_text() or ""
          #   print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
             if len(t2.strip()) > len(text): text = t2
@@ -662,6 +664,14 @@ def print_pdf_bookmarks(path: str):
         logger.error(f"Error reading bookmarks from {path}: {e}")
 
 # ── Merge + bookmarks + multi-method extraction
+import logging
+
+# Right once, at the top:
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
+logger = logging.getLogger(__name__)
 nek = None 
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):

@@ -43,14 +43,32 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
   const scriptPath = path.join(__dirname, 'merge_with_bookmarks.py');
 
   const python = spawn(pythonBin, [scriptPath, inputDir, outputPath]);
+  console.log('Spawning merge process…');
+  const proc = spawn('python3', ['merge_with_bookmarks.py', filePath], {
+    env: process.env,
+  });
+  proc.stdout.on('data', data => {
+    console.log(`[merge stdout] ${data}`);
+  });
 
+  proc.stderr.on('data', data => {
+    console.error(`[merge stderr] ${data}`);
+  });
+
+  proc.on('error', err => {
+    console.error('Merge process error:', err);
+  });
+
+  proc.on('exit', (code, signal) => {
+    console.log(`Merge process exited with code ${code}, signal ${signal}`);
+  });
   python.stdout.on('data', data => {
     console.log(`[PY-OUT] ${data}`.trim());
   });
   python.stderr.on('data', data => {
     console.error(`[PY-ERR] ${data}`.trim());
   });
-
+  
   python.on('close', code => {
     if (code === 0) {
       res.download(outputPath, err => {

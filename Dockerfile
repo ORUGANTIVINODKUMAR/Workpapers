@@ -1,35 +1,37 @@
-# Use the official Node “slim” image
-FROM node:22.17.0-slim
+FROM python:3.11-slim
 
-# ---- System deps (python, tesseract, poppler for pdfinfo) ----
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3 python3-venv python3-pip \
-        tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
-        fontconfig poppler-utils \
-    && fc-cache -fv \
+# Install system dependencies including poppler-utils and tesseract
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    poppler-utils \
+    tesseract-ocr \
+    libtesseract-dev \
+    libleptonica-dev \
+    tesseract-ocr-eng \
+    nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# ---- Install deps ----
-# Copy only manifest files first to leverage Docker cache
+# Copy your requirement and package files
 COPY requirements.txt package.json package-lock.json ./
+
+# Create and activate Python virtual environment, install Python dependencies and npm packages
 RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
     && npm ci --omit=dev
 
-# Make venv binaries available
+# Add virtual environment binaries to PATH
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# ---- App code ----
+# Copy the rest of your application code
 COPY . .
 
-# ---- Runtime config ----
+# Set port (adjust if your app uses a different one)
 ARG PORT=3000
 ENV PORT=$PORT
 EXPOSE $PORT
 
-# ---- Launch Node (Python is invoked by your upload route) ----
+# Start only node app (adjust command if you want to start Python differently)
 CMD ["node", "server.js"]

@@ -1,80 +1,89 @@
-// server.js
-const express = require("express");
-const multer  = require("multer");
-const { spawn } = require("child_process");
-const path    = require("path");
-const fs      = require("fs");
-
-// ── Configure multer to write uploads into /app/uploads
-const UPLOAD_DIR = path.join(__dirname, "uploads");
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-const upload = multer({ dest: UPLOAD_DIR });
-
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+ 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// ── Upload endpoint
-// Expects a field named "pdf"
-app.post("/upload", upload.single("pdf"), (req, res) => {
-  if (!req.file) {
-    console.error("[upload] No file received");
-    return res.status(400).json({ error: "No file uploaded" });
+const PORT = process.env.PORT || 3001;
+ 
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const MERGED_DIR = path.join(__dirname, 'merged');
+ 
+[UPLOAD_DIR, MERGED_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Created missing directory: ${dir}`);
   }
-
-  const filePath = req.file.path;
-  console.log("[upload] Received file at", filePath);
-  console.log("[upload] Spawning merge process…");
-
-  // Spawn the Python script with the uploaded path and an output path
-  const outputPath = path.join(UPLOAD_DIR, `merged-${Date.now()}.pdf`);
-  const proc = spawn("python3", [
-    "merge_with_bookmarks.py",
-    filePath,
-    outputPath
-  ], {
-    env: process.env
+});
+ 
+//const PORT = process.env.PORT || 3001;
+app.use(cors());
+app.use(express.static('public'));
+ 
+//const upload = multer({ dest: 'uploads/' }); replaced this code with 16 -- 25 code
+// To fix the PDF corruption issue,
+// Fixed: Storage config with proper filename formatting 
+const storage = multer.diskStorage({
+  destination: function (req,file, cd){
+    cd(null, 'uploads/');
+  },
+  filename: function (req, file, cd){
+    //const originalExt = path.extname(file.originalname) || '.pdf'; // Default to .pdf 
+const safeName = `${Date.now()}-${file.originalname}`;
+ 
+    cd(null, safeName);
+  }
+})
+ 
+const upload = multer({ storage: storage });
+ 
+app.post('/merge', upload.array('pdfs'), (req, res) => {
+  const inputDir = 'uploads';
+  const outputPath = path.join('merged', `merged_${Date.now()}.pdf`);
+ 
+  //  Log uploaded files (optional, for debugging)
+  console.log("Uploaded files:");
+  req.files.forEach(file => {
+    console.log(file.path);
   });
-
-  // Log any stdout from the Python script
-  proc.stdout.on("data", data => {
-    for (let line of data.toString().split("\n")) {
-      if (line.trim()) console.log("[merge stdout]", line);
-    }
+  const pythonPath = 'C:\\Python312\\python.exe';
+  const python = spawn('python', ['merge_with_bookmarks.py', inputDir, outputPath]);
+ 
+  python.stdout.on('data', data => {
+    console.log(`[PY-OUT] ${data}`.trim());
   });
-
-  // Log any stderr from the Python script
-  proc.stderr.on("data", data => {
-    for (let line of data.toString().split("\n")) {
-      if (line.trim()) console.error("[merge stderr]", line);
-    }
+  python.stderr.on('data', data => {
+    console.error(`[PY-ERR] ${data}`.trim());
   });
-
-  // Handle script exit
-  proc.on("exit", (code, signal) => {
-    console.log(`[merge exit] code=${code} signal=${signal}`);
+ 
+ 
+  python.on('close', (code) => {
     if (code === 0) {
-      // Success → send back the merged file path (or URL if you serve it)
-      res.json({
-        success: true,
-        mergedFile: `/downloads/${path.basename(outputPath)}`
+      res.download(outputPath, () => {
+        // Cleanup
+        //fs.readdirSync(inputDir).forEach(file => fs.unlinkSync(path.join(inputDir, file)));
+        //fs.unlinkSync(outputPath);
       });
     } else {
-      res.status(500).json({
-        error: `Merge process exited with code ${code}`
-      });
+      res.status(500).send('Failed to merge PDFs with bookmarks');
     }
   });
-
-  // Handle spawn errors
-  proc.on("error", err => {
-    console.error("[merge error]", err);
-    res.status(500).json({ error: err.message });
+}
+ 
+);
+ 
+app.post('/merge', upload.array('pdfs'), (req, res) => {
+  console.log("Uploaded files:");
+  req.files.forEach(file => {
+    console.log(file.path); // This is safe here
   });
+ 
+  // ... rest of your code
 });
-
-// ── (Optional) Serve the merged files
-app.use("/downloads", express.static(UPLOAD_DIR));
-
+ 
+ 
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server is running at http://localhost:${PORT}`);
 });

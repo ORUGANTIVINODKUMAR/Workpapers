@@ -11,6 +11,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# ← Add this line to ensure uploads/ already exists at container start
+RUN mkdir -p /app/uploads
 
 # Copy dependency manifests
 COPY requirements.txt package.json package-lock.json ./

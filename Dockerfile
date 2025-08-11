@@ -1,30 +1,31 @@
 FROM node:22.17.0-slim
  
-# ---- System deps (python, tesseract, poppler for pdfinfo) ----
+# Install system dependencies including Tesseract and English language data
 RUN apt-get update \
-&& apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip \
-    tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
-&& rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends \
+        python3 python3-pip \
+        tesseract-ocr libtesseract-dev libleptonica-dev \
+        tesseract-ocr-eng \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
  
 WORKDIR /app
  
-# ---- Install deps ----
+# Copy only dependency manifests first to leverage Docker cache
 COPY requirements.txt package.json package-lock.json ./
-RUN python3 -m venv /opt/venv \
-&& /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
-&& npm ci --omit=dev
  
-# Make venv bins available
-ENV PATH="/opt/venv/bin:${PATH}"
+# Install Python and Node dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt \
+    && npm ci
  
-# ---- App code ----
+# Copy the rest of the application code
 COPY . .
  
-# ---- Runtime config ----
-ARG PORT=3000
-ENV PORT=$PORT
-EXPOSE $PORT
+# Expose port and set environment variable
+ENV PORT=${PORT:-3000}
  
-# ---- Start only Node. Python is spawned by your upload route ----
-CMD ["node", "server.js"]
+# Verify tesseract is installed, run OCR script, then start Node server
+CMD which tesseract \
+    && mkdir -p uploads merged \
+&& python3 merge_with_bookmarks.py uploads merged/output.pdf \
+    && node server.js

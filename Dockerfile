@@ -21,4 +21,4 @@ RUN pip install --no-cache-dir -r requirements.txt \
 ENV PORT=${PORT:-3000}
 CMD mkdir -p uploads merged \
 && python merge_with_bookmarks.py uploads merged/output.pdf \
-&& node server.js
+    && node server.js

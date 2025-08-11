@@ -11,7 +11,7 @@ EMP_BRACKET_RE = re.compile(
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import PyPDF2
-from pdfminer_high_level import extract_text as pdfminer_extract  # if your import was correct originally, keep as from pdfminer.high_level
+from pdfminer.high_level import extract_text as pdfminer_extract # if your import was correct originally, keep as from pdfminer.high_level
 from pdfminer.layout import LAParams
 import pytesseract
 from pdf2image import convert_from_path

@@ -3,7 +3,6 @@ from collections import defaultdict, Counter
 from typing import Dict, List, Tuple
 import re
 from collections import Counter
-
 # …
 EMP_BRACKET_RE = re.compile(
     r"Employer's name, address, and ZIP code.*?\[(.*?)\]",
@@ -12,10 +11,10 @@ EMP_BRACKET_RE = re.compile(
 
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import PyPDF2
-from pdfminer.high_level import extract_text as pdfminer_extract
+from pdfminer_high_level import extract_text as pdfminer_extract  # if your import was correct originally, keep as from pdfminer.high_level
 from pdfminer.layout import LAParams
 import pytesseract
-#from pdf2image import convert_from_path
+from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber
 from PIL import Image
@@ -33,7 +32,7 @@ def print_phrase_context(text: str, phrase: str = PHRASE, num_lines: int = 2):
             for j in range(i, min(i + 1 + num_lines, len(lines))):
                 print(lines[j], file=sys.stderr)
             break
-
+        
 # ── Unicode console on Windows
 def configure_unicode():
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -50,37 +49,16 @@ OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
 # ── Priority tables
-income_priorities = {
-    'W-2': 1,
-    'Consolidated-1099': 2,
-    '1099-NEC': 3,
-    '1099-PATR': 4,
-    '1099-MISC': 5,
-    '1099-OID': 6,
-    '1099-G': 7,
-    'W-2G': 8,
-    '1065': 9,
-    '1120-S': 10,
-    '1041': 11,
-    '1099-INT': 12,
-    '1099-DIV': 13,
-    '1099-R': 14,
-    '1099-Q': 15,
-    'K-1': 16,
-    '1099-Other': 17
-}
-expense_priorities = {
-    '5498-SA': 1, '1095-A': 2, '1095-B': 3, '1095-C': 4,
-    '1098-Mortgage': 5, '1098-T': 6, 'Property Tax': 7, '1098-Other': 8
-}
+income_priorities = {'W-2':1,'1099-NEC':2,'1099-PATR':3,'1099-MISC':4,'1099-OID':5,'1099-G':6,'W-2G':7,'1065':8,'1120-S':9,'1041':10,'1099-INT':11,'1099-DIV':12,'1099-R':13,'1099-Q':14,'K-1':15,'1099-Other':16}
+expense_priorities = {'5498-SA':1,'1095-A':2,'1095-B':3,'1095-C':4,'1098-Mortgage':5,'1098-T':6,'Property Tax':7,'1098-Other':8}
 
 def get_form_priority(ftype: str, category: str) -> int:
-    table = income_priorities if category == 'Income' else (expense_priorities if category == 'Expenses' else {})
-    return table.get(ftype, max(table.values()) + 1 if table else 9999)
+    table = income_priorities if category=='Income' else (expense_priorities if category=='Expenses' else {})
+    return table.get(ftype, max(table.values())+1 if table else 9999)
 
 # ── Logging helper
 def log_extraction(src: str, method: str, text: str):
-    snippet = text[:2000].replace('\n', ' ') + ('...' if len(text) > 2000 else '')
+    snippet = text[:2000].replace('\n',' ') + ('...' if len(text)>2000 else '')
     logger.info(f"[{method}] {os.path.basename(src)} → '{snippet}'")
 
 # ── Tiered text extraction for PDF pages
@@ -88,10 +66,14 @@ def extract_text(path: str, page_index: int) -> str:
     text = ""
     # OCR fallback
     if len(text.strip()) < OCR_MIN_CHARS:
-        t3 = _ocr_page_with_pymupdf(path, page_index)
-        print(f"[OCR full]\n{t3}", file=sys.stderr)
-        if len(t3.strip()) > len(text):
-            text = t3
+        try:
+            opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
+            img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
+            t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
+            print(f"[OCR full]\n{t3}", file=sys.stderr)
+            if len(t3.strip()) > len(text): text = t3
+        except Exception:
+            traceback.print_exc()
     # PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
@@ -108,26 +90,8 @@ def extract_text(path: str, page_index: int) -> str:
             if len(t2.strip()) > len(text): text = t2
         except Exception:
             traceback.print_exc()
+    
     return text
-# ocr extraction
-def _ocr_page_with_pymupdf(pdf_path: str, page_index: int) -> str:
-    """Render a PDF page with PyMuPDF and OCR it with Tesseract (no Poppler needed)."""
-    try:
-        doc = fitz.open(pdf_path)
-        page = doc.load_page(page_index)
-        pix = page.get_pixmap(dpi=300)          # render at 300 DPI
-        img_bytes = pix.tobytes("png")          # get PNG bytes
-        img = Image.open(io.BytesIO(img_bytes)) # PIL Image
-        text = pytesseract.image_to_string(img, config="--psm 6") or ""
-        return text
-    except Exception:
-        traceback.print_exc()
-        return ""
-    finally:
-        try:
-            doc.close()
-        except Exception:
-            pass
 
 # ── Full‐PDF text extractor
 def extract_text_from_pdf(file_path: str) -> str:
@@ -150,24 +114,27 @@ def extract_text_from_image(file_path: str) -> str:
     text = ""
     try:
         img = Image.open(file_path)
-        if img.mode != 'RGB': img = img.convert('RGB')
+        if img.mode!='RGB': img = img.convert('RGB')
         et = pytesseract.image_to_string(img)
         if et.strip():
             print_phrase_context(et)
             text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
-        else:
-            text = f"No text in image: {os.path.basename(file_path)}"
+        else: text = f"No text in image: {os.path.basename(file_path)}"
     except Exception as e:
         logger.error(f"Error OCR image {file_path}: {e}")
         text = f"Error OCR image: {e}"
     return text
 
+# ── Consolidated-1099: Account Number extractor
 def extract_account_number(text: str) -> str:
     """
     Extract and normalize the account number from page text.
+    Removes spaces and ignores trailing page info or other words.
+    Returns None if no account number found.
     """
     match = re.search(r"Account Number:\s*([\d\s]+)", text, re.IGNORECASE)
     if match:
+        # Normalize: remove spaces so 488 885793 204 == 488885793204
         return match.group(1).replace(" ", "").strip()
     return None
 
@@ -182,19 +149,6 @@ def classify_text(text: str) -> Tuple[str, str]:
         ("employer's name" in lower and "address" in lower)
     ):
         return "Income", "W-2"
-    consolidated_unused = [
-    "1099 consolidated tax statement for 20",      
-    "you may receive a separate 1099 consolidated tax statement",
-    "consider and review both consolidated tax statements",
-    "visit etrade.com/taxyear20",
-    "etrade from morgan stanley",
-    "morgan stanley smith barney llc",
-    ]
-    lower = text.lower()
-    for pat in consolidated_unused:
-        if pat in lower:
-            return "Others", "Unused"
-
     # If page matches any instruction patterns, classify as Others → Unused
     instruction_patterns = [
     # full “Instructions for Employee…” block (continued from back of Copy C)
@@ -274,6 +228,15 @@ def classify_text(text: str) -> Tuple[str, str]:
     for pat in instruction_patterns:
         if pat in lower:
             return "Others", "Unused"
+    #-- Consolidated-1099
+    consolidated_category = [
+        "Consolidated",
+        "Consolidated"
+        ]
+    
+    for pat in consolidated_category:
+        if pat in lower:
+            return "Income", "Consolidated-1099"
     #-----1099-DIV
     div_category = [
         "1a total ordinary dividends",
@@ -285,7 +248,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     ]
     
     for pat in div_category:
-        if pat.lower() in lower:
+        if pat in lower:
             return "Income", "1099-DIV"   
     
     
@@ -311,7 +274,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     found_int_front = any(pat.lower() in lower for pat in int_front)
     found_int_unused = any(pat.lower() in lower for pat in int_unused)
 
-# 🔁 Priority: 1099-INT > Unused
+    # 🔁 Priority: 1099-INT > Unused
     if found_int_front:
         return "Income", "1099-INT"
     elif found_int_unused:
@@ -348,34 +311,67 @@ def classify_text(text: str) -> Tuple[str, str]:
     found_front = any(pat.lower() in lower for pat in mort_front)
     found_unused = any(pat.lower() in lower for pat in mort_unused)
 
-# 🔁 Priority: 1098-Mortgage > Unused
+    # 🔁 Priority: 1098-Mortgage > Unused
     if found_front:
         return "Expenses", "1098-Mortgage"
     elif found_unused:
         return "Others", "Unused"
 
     #---------------------------1098-Mortgage----------------------------------#
-#3) fallback form detectors
-    if 'wage and tax statement' in t or ("employer's name" in t and 'address' in t):
-        return 'Income', 'W-2'
+    #3) fallback form detectors
     if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
+    if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
+    if '1099-div' in t: return 'Income', '1099-DIV'
+    if 'form 1099-div' in t: return 'Income', '1099-DIV'
     if '1098-t' in t: return 'Expenses', '1098-T'
     if '1099' in t: return 'Income', '1099-Other'
     if 'donation' in t: return 'Expenses', 'Donation'
     return 'Unknown', 'Unused'
 
-# Parse W-2
+    # Detect W-2 pages by their header phrases
+    if 'wage and tax statement' in t or ("employer's name" in t and 'address' in t):
+        return 'Income', 'W-2'
+    
+# ── Parse W-2 fields bookmarks
 def normalize_entity_name(raw: str) -> str:
+    """
+    Cleans up employer names for bookmark use:
+    - Removes trailing 'TAX WITHHELD'
+    - Removes trailing numbers (including decimals)
+    - Collapses repeated words and normalizes whitespace
+    """
     stripped = raw.strip()
+    # 1. Collapse whole-line duplicates (e.g., "X X" or "Y Y Y")
     whole_dup = re.match(r'^(?P<seq>.+?)\s+(?P=seq)(?:\s+(?P=seq))*$', stripped, flags=re.IGNORECASE)
     if whole_dup:
         stripped = whole_dup.group('seq')
+
+    # 2. Collapse any repeated adjacent words (case-insensitive)
     collapsed = re.sub(r'\b(.+?)\b(?:\s+\1\b)+', r'\1', stripped, flags=re.IGNORECASE)
+
+    # 3. Remove trailing 'TAX WITHHELD' (case-insensitive)
     collapsed = re.sub(r'\s*TAX WITHHELD\s*$', '', collapsed, flags=re.IGNORECASE)
+
+    # 4. Remove trailing numbers (including decimals, possibly multiple, separated by space)
     collapsed = re.sub(r'(?:\s+\d+(?:\.\d+)?)+\s*$', '', collapsed)
+
+    # 5. Standardize whitespace
     return ' '.join(collapsed.split()).strip()
 
+#---------------------------W2----------------------------------#
+
 def parse_w2(text: str) -> Dict[str, str]:
+    """
+    Parses SSN/EIN and pulls out employer_name and employer_address,
+    normalizing duplicate employer names.
+
+    Fallback order:
+    1) Triple-cent-sign marker
+    2) Standard W-2 header parsing
+    3) PAYROL marker
+    4) ©-marker fallback
+    """
+    # SSN & EIN
     ssn_m = re.search(r"\b(\d{3}-\d{2}-\d{4})\b", text)
     ssn = ssn_m.group(1) if ssn_m else "N/A"
     ein_m = re.search(r"\b(\d{2}-\d{7})\b", text)
@@ -384,19 +380,25 @@ def parse_w2(text: str) -> Dict[str, str]:
     lines: List[str] = text.splitlines()
     emp_name = emp_addr = "N/A"
     bookmark = None
-
-    marker = ("c Employer's name, address, and ZIP code "
-              "8 Allocated tips 3 Social security wages 4 Social security tax withheld").lower()
+    
+    marker = (
+        "c Employer's name, address, and ZIP code "
+        "8 Allocated tips 3 Social security wages 4 Social security tax withheld"
+    ).lower()
     lower_lines = [l.lower() for l in lines]
 
     for i, L in enumerate(lower_lines):
         if marker in L:
+            # next non-blank
             j = i + 1
             while j < len(lines) and not lines[j].strip():
                 j += 1
+
             if j < len(lines):
                 raw = lines[j].strip()
+                # only proceed if this line really starts with a letter
                 if re.match(r'^[A-Za-z]', raw):
+                    # strip off the numeric tail
                     m = re.match(r'^(.+?)\s+\d', raw)
                     company = (m.group(1).strip() if m else raw)
                     emp_name = normalize_entity_name(company)
@@ -409,57 +411,179 @@ def parse_w2(text: str) -> Dict[str, str]:
                         'employee_address': 'N/A',
                         'bookmark': bookmark
                     }
-            break
-
+            break  # no valid next line, so stop looking
     for i, line in enumerate(lines):
-        if "0000000845 - PAYROL" in line:
-            j = i + 1
-            while j < len(lines) and not lines[j].strip():
-                j += 1
-            if j < len(lines):
-                words = lines[j].strip().split()
-                emp_name = " ".join(words[:3])
-            break
+            if "0000000845 - PAYROL" in line:
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    # split into words
+                    words = lines[j].strip().split()
 
-    triple_variants = [
-        "© Employer's name, address, and ZIP code |[e Employer's name, address, and ZIP code |[e Employer's name, address, and ZIP code",
-        "c Employer's name, address, and ZIP code c Employer's name, address, and ZIP code c Employer's name, address, and ZIP code",
-        "¢ Employer's name, address and ZIP code | © Employers name, address and ZIP code",
-        "= EMPLOYER'S name, address, and ZIP code — ee ls. EMPLOYER'S nama, atidress, and ZIP cade eee ~ |",
-    ]
-    for triple_marker in triple_variants:
-        if triple_marker in text:
-            for i, L in enumerate(lines):
-                if triple_marker in L:
-                    j = i + 1
-                    while j < len(lines) and not lines[j].strip():
-                        j += 1
-                    if j < len(lines):
-                        raw = lines[j].strip()
-                        parts = re.split(r"[|)]+", raw)
-                        tokens, seen = [], set()
-                        for part in parts:
-                            for w in part.split():
-                                w_clean = w.strip()
-                                if w_clean:
-                                    up = w_clean.upper()
-                                    if up not in seen:
-                                        seen.add(up)
-                                        tokens.append(w_clean)
-                        emp_name = normalize_entity_name(" ".join(tokens))
-                        bookmark = emp_name
-                    break
-            return {
-                'ssn': ssn, 'ein': ein,
-                'employer_name': emp_name,
-                'employer_address': emp_addr,
-                'employee_name': 'N/A',
-                'employee_address': 'N/A',
-                'bookmark': bookmark
-            }
+            # 1) your bookmark is just the first 3 words
+                    emp_name = " ".join(words[:3])
 
+            # 2) keep your emp_name extraction exactly as before
+                    #emp_name = lines[j].strip().split()[0]
+                break
+            
+    
+    # 1a) Triple-cent-sign marker fallback
+    triple_marker = (
+        "© Employer's name, address, and ZIP code |[e Employer's name, address, and ZIP code |[e Employer's name, address, and ZIP code"
+    )
+    if triple_marker in text:
+        # find its line index
+        for i, L in enumerate(lines):
+            if triple_marker in L:
+                # next non-blank line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    raw = lines[j].strip()
+                    # split on '|' then dedupe words across all parts
+                    parts = [p.strip() for p in raw.split("|")]
+                    tokens, seen = [], set()
+                    for part in parts:
+                        for w in part.split():
+                            if w not in seen:
+                                seen.add(w)
+                                tokens.append(w)
+                    emp_name = normalize_entity_name(" ".join(tokens))
+                break
+
+        # return immediately if we got it
+        return {
+            'ssn': ssn,
+            'ein': ein,
+            'employer_name': emp_name,
+            'employer_address': emp_addr,
+            'employee_name': 'N/A',
+            'employee_address': 'N/A'
+        }
+
+    # 1b) Triple-cent-sign marker fallback
+    # c Employer's name, address, and ZIP code c Employer's name, address, and ZIP code c Employer's name, address, and ZIP code
+    #CUMMINS INC | CUMMINS INC ) CUMMINS INC
+    
+    triple_marker = (
+        "c Employer's name, address, and ZIP code c Employer's name, address, and ZIP code c Employer's name, address, and ZIP code"
+    )
+    if triple_marker in text:
+        for i, line in enumerate(lines):
+            if triple_marker in line:
+                # Find next non-blank line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    raw = lines[j].strip()
+                    # Split on '|' and ')' then dedupe tokens across all parts
+                    parts = re.split(r"[|)]+", raw)
+                    tokens, seen = [], set()
+                    for part in parts:
+                        for w in part.split():
+                            w_clean = w.strip()
+                            if w_clean and w_clean.upper() not in seen:
+                                seen.add(w_clean.upper())
+                                tokens.append(w_clean)
+                    emp_name = normalize_entity_name(" ".join(tokens))
+                    # Use the same normalized name as the bookmark
+                    bookmark = emp_name
+                break
+
+        return {
+            'ssn': ssn,
+            'ein': ein,
+            'employer_name': emp_name,
+            'employer_address': emp_addr,
+            'employee_name': 'N/A',
+            'employee_address': 'N/A',
+            'bookmark': bookmark
+        }
+
+    # 1c) Triple-cent-sign marker fallback
+    triple_marker = (
+        "¢ Employer's name, address and ZIP code | © Employers name, address and ZIP code"
+    )
+    if triple_marker in text:
+        # find its line index
+        for i, L in enumerate(lines):
+            if triple_marker in L:
+                # next non-blank line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    raw = lines[j].strip()
+                    # split on '|' then dedupe words across all parts
+                    parts = [p.strip() for p in raw.split("|")]
+                    tokens, seen = [], set()
+                    for part in parts:
+                        for w in part.split():
+                            if w not in seen:
+                                seen.add(w)
+                                tokens.append(w)
+                    emp_name = normalize_entity_name(" ".join(tokens))
+                break
+
+        # return immediately if we got it
+        return {
+            'ssn': ssn,
+            'ein': ein,
+            'employer_name': emp_name,
+            'employer_address': emp_addr,
+            'employee_name': 'N/A',
+            'employee_address': 'N/A'
+        }  
+    # 1d) Triple-cent-sign marker fallback
+    triple_marker = (
+        "= EMPLOYER'S name, address, and ZIP code — "
+        "ee ls. EMPLOYER'S nama, atidress, and ZIP cade eee ~ |"
+    )
+    if triple_marker in text:
+        for i, line in enumerate(lines):
+            if triple_marker in line:
+                # 1) find the next line that actually has letters
+                j = i + 1
+                while j < len(lines):
+                    cand = lines[j].strip()
+                    if cand and re.search(r'[A-Za-z]', cand):
+                        raw = cand
+                        break
+                    j += 1
+
+                # 2) split on '|' or any non-word chars, then dedupe & uppercase tokens
+                parts = re.split(r'[|\W]+', raw)
+                tokens, seen = [], set()
+                for part in parts:
+                    w = part.strip()
+                    if w:
+                        u = w.upper()
+                        if u not in seen:
+                            seen.add(u)
+                            tokens.append(u)
+
+                emp_name = normalize_entity_name(" ".join(tokens))
+                bookmark = emp_name
+                break
+
+        return {
+            'ssn':             ssn,
+            'ein':             ein,
+            'employer_name':   emp_name,
+            'employer_address': emp_addr,
+            'employee_name':   'N/A',
+            'employee_address': 'N/A',
+            'bookmark':        bookmark
+        }
+       #-----------------------------------------
+    # 2) Standard W-2 parsing
     for i, line in enumerate(lines):
         if "employer" in line.lower() and "name" in line.lower():
+            # next non-blank = name
             j = i + 1
             while j < len(lines) and not lines[j].strip():
                 j += 1
@@ -470,26 +594,39 @@ def parse_w2(text: str) -> Dict[str, str]:
                         emp_name = normalize_entity_name(p)
                         break
                 j += 1
+            # next non-blank = address
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
                 emp_addr = lines[j].strip()
             break
 
+    # dedupe if found
     if emp_name != "N/A":
         toks, seen = emp_name.split(), set()
         emp_name = " ".join(w for w in toks if w not in seen and not seen.add(w)).rstrip("\\/")
 
     else:
+    #0000000845 - PAYROL
+    #DOTCOM TEAM LLC B Employer Verification number …
+        # 3) PAYROL fallback
         for i, line in enumerate(lines):
             if "c Employer's name, address, and ZIP code" in line:
                 j = i + 1
                 while j < len(lines) and not lines[j].strip():
                     j += 1
                 if j < len(lines):
+                    # split into words
                     words = lines[j].strip().split()
+
+            # 1) your bookmark is just the first 3 words
                     emp_name = " ".join(words[:3])
+
+            # 2) keep your emp_name extraction exactly as before
+                    #emp_name = lines[j].strip().split()[0]
                 break
+        
+        # 4) ©-marker fallback
         if emp_name == "N/A":
             marker = "© Employer's name, address, and ZIP code"
             for i, line in enumerate(lines):
@@ -499,6 +636,7 @@ def parse_w2(text: str) -> Dict[str, str]:
                         j += 1
                     if j < len(lines):
                         raw = lines[j].strip()
+                        # split on '|' and dedupe words
                         parts = [p.strip() for p in raw.split("|")]
                         tokens, seen = [], set()
                         for part in parts:
@@ -518,64 +656,109 @@ def parse_w2(text: str) -> Dict[str, str]:
         'employee_address': 'N/A'
     }
 
+    
 def print_w2_summary(info: Dict[str, str]):
     print("\n=== W-2 Summary ===\n")
     print(f"Employer: {info['employer_name']}, Address: {info['employer_address']}, EIN: {info['ein']}")
     print("===================\n")
 
-# 1099-INT bookmark extraction
+#---------------------------W2----------------------------------#
+#---------------------------1099-INT----------------------------------#
+import re
+from typing import List
+
 def extract_1099int_bookmark(text: str) -> str:
+    """
+    Extract a bookmark name from Form 1099-INT text.
+
+    Strategy:
+    1) US Bank NA override
+    2) Bank of America override
+    3) Extract after 'foreign postal code, and telephone no.' (robust logic)
+    4) Header-based extraction: '1 interest income income'
+    5) Pattern-based fallbacks
+    6) 'telephone no.'-based extraction
+    7) Default fallback
+    """
     lines: List[str] = text.splitlines()
     lower_lines = [L.lower() for L in lines]
     full_lower = text.lower()
 
+    # 1) US Bank NA override
     if any(v in full_lower for v in ("uss bank na", "us bank na", "u s bank na")):
         return "US Bank NA"
-    if any(v in full_lower for v in ("capital one na", "capital one n.a", "capital one national association")):
+    # 2b) Capital One override
+    if any(v in full_lower for v in (
+            "capital one na",
+            "capital one n.a",
+            "capital one national association"
+        )):
         return "CAPITAL ONE NA"
+    # 2) Bank of America override
     if "bank of america" in full_lower:
         for L in lines:
             if "bank of america" in L.lower():
                 return re.sub(r"[^\w\s]+$", "", L.strip())
 
+    # 3) Robust bookmark extraction after 'foreign postal code...'
     def extract_all_bookmarks(lines):
         lower_lines = [l.lower() for l in lines]
         bookmarks = []
+
+        # Exact match only
         skip_phrases = {
-            "omb no", "payer's tin", "payer's rtn", "rtn",
-            "1099-int interest", "recipient's tin", "fatca filing",
-            "copy b", "account number", "form 1099-int", "1 interest income income"
+        "omb no",             # will catch "omb no. 1545-0112"
+        "payer's tin",
+        "payer's rtn",
+        "rtn",
+        "1099-int interest",
+        "recipient's tin",
+        "fatca filing",
+        "copy b",
+        "account number",
+        "form 1099-int",
+        "1 interest income income"
         }
+
         for i, L in enumerate(lower_lines):
             if "or foreign postal code, and telephone no." in L:
                 for offset in range(1, 4):
                     idx = i + offset
                     if idx >= len(lines):
                         break
-                    candidate = lines[idx].strip()
+                    
+                    candidate       = lines[idx].strip()
                     candidate_lower = candidate.lower()
+                    # skip blank or super-short
                     if not candidate or len(candidate) <= 3:
+                        print(f"⏩ Skipping too short/blank: {repr(candidate)}")
                         continue
+                        # ✅ Priority override
                     if "mortgage" in candidate_lower or "servicer" in candidate_lower:
                         return [candidate]
+
+                        # ❌ Skip if exact match in skip list
                     if len(candidate) <= 3 or any(skip in candidate_lower for skip in skip_phrases):
+                        print(f"⏩ Skipping: {repr(candidate)}")
                         continue
                     bookmarks.append(candidate)
                     break
-        return bookmarks
+        return bookmarks 
 
     bookmarks = extract_all_bookmarks(lines)
     if bookmarks:
+        print("✅ Bookmark Chosen:", bookmarks[0])
         return bookmarks[0]
 
+    # 5) Pattern-based fallback
     patterns = [
-        "interest income income",
-        "zip or foreign postal code, and telephone no.",
-        "federal id number:",
+        "Interest income Income",
+        "ZIP or foreign postal code, and telephone no.",
+        "Federal ID Number:",
     ]
     for i, L in enumerate(lines):
-        if any(pat in L.lower() for pat in patterns):
-            for j in range(i + 1, len(lines)):
+        if any(pat.lower() in L.lower() for pat in patterns):
+            for j in range(i+1, len(lines)):
                 s = lines[j].strip()
                 if not s:
                     continue
@@ -590,38 +773,31 @@ def extract_1099int_bookmark(text: str) -> str:
                 cleaned = re.sub(r"\b\w\b$", "", cleaned).strip()
                 return cleaned
 
+    # 7) Fallback
     return "1099-INT"
 
-# --- Issuer display aliases ---
-ISSUER_ALIASES = {
-    "morgan stanley capital management, llc": "E*TRADE",
-}
-def alias_issuer(name: str) -> str:
-    return ISSUER_ALIASES.get(name.lower().strip(), name)
-
-# --------------------------- Consolidated-1099 issuer name --------------------------- #
-def extract_consolidated_issuer(text: str) -> str | None:
-    lower = text.lower()
-    if re.search(r"morgan\s+stanley\s+capital\s+management,\s*llc", lower):
-        return "Morgan Stanley Capital Management, LLC"
-    if "consolidated 1099" in lower or "composite 1099" in lower:
-        for line in text.splitlines():
-            s = line.strip()
-            if not s:
-                continue
-            if re.search(r"(form|1099|copy|page|\baccount\b)", s, re.IGNORECASE):
-                continue
-            if re.search(r"(LLC|Bank|Securities|Wealth|Brokerage|Advisors?)", s):
-                return re.sub(r"[^\w\s,&.\-]+$", "", s)
-    return None
-
-# 1099-DIV bookmark extractor
+#---------------------------1099-INT----------------------------------#
+#---------------------------1099-DIV----------------------------------#
 def extract_1099div_bookmark(text: str) -> str:
+    """
+    Grab the payer’s (or, if missing, the recipient’s) name for Form 1099-DIV by:
+    0) If the full PAYER header (sometimes repeated) is present, take the line after that.
+    1) Otherwise scan for the PAYER’S name header line,
+    2) Otherwise scan for the RECIPIENT’S name header line,
+    3) Skip blanks and return the very next non-blank line (stripping trailing junk).
+    """
+    import re
+
     lines = text.splitlines()
     lower_text = text.lower()
     lower_lines = [L.lower() for L in lines]
-    marker = ("payer's name, street address, city or town, state or province, country, "
-              "zip or foreign postal code, and telephone no.")
+
+    # 0) Triple-marker fallback: if the full PAYER header shows up (maybe repeated),
+    #    pull the very next non-blank line as the bookmark.
+    marker = (
+        "payer's name, street address, city or town, "
+        "state or province, country, zip or foreign postal code, and telephone no."
+    )
     if marker in lower_text:
         for i, L in enumerate(lower_lines):
             if marker in L:
@@ -629,9 +805,11 @@ def extract_1099div_bookmark(text: str) -> str:
                 while j < len(lines) and not lines[j].strip():
                     j += 1
                 if j < len(lines):
+                    # strip trailing punctuation/quotes
                     return re.sub(r"[^\w\s]+$", "", lines[j].strip())
                 break
 
+    # helper to find the next non-blank after a header predicate
     def find_after(header_pred):
         for i, L in enumerate(lower_lines):
             if header_pred(L):
@@ -641,66 +819,102 @@ def extract_1099div_bookmark(text: str) -> str:
                         return re.sub(r"[^\w\s]+$", "", cand)
         return None
 
+    # 1) Try the PAYER header
     payer = find_after(lambda L: "payer's name" in L and "street address" in L)
     if payer:
         return payer
+
+    # 2) Fallback: RECIPIENT header
     recip = find_after(lambda L: "recipient's name" in L and "street address" in L)
     if recip:
         return recip
+
+    # 3) Ultimate fallback
     return "1099-DIV"
+#---------------------------1099-DIV----------------------------------#
 
 def clean_bookmark(name: str) -> str:
+    # Remove any trailing junk starting from 'Interest' and strip whitespace
     cleaned = re.sub(r"\bInterest.*$", "", name, flags=re.IGNORECASE)
     return cleaned.strip()
 
-# 1098-Mortgage bookmark extractor
+#---------------------------1098-Mortgage----------------------------------#
 def extract_1098mortgage_bookmark(text: str) -> str:
+    """
+    1) Dovenmuehle Mortgage override
+    2) Huntington National Bank override
+    3) UNITED NATIONS FCU override
+    4) LOANDEPOT COM LLC override
+    5) "Limits based" header override (grab first non-empty next line, strip any 'and' clause)
+    6) FCU override
+    7) PAYER(S)/BORROWER(S) override
+    8) RECIPIENT’S/LENDER’S header override
+    9) Fallback to "1098-Mortgage"
+    After extraction, cleans up any trailing junk starting from 'Interest'.
+    """
     lines: List[str] = text.splitlines()
     lower_lines = [L.lower() for L in lines]
 
+    # 1) Dovenmuehle Mortgage override
     for L in lines:
         if re.search(r"dovenmuehle\s+mortgage", L, flags=re.IGNORECASE):
             m = re.search(r"(Dovenmuehle Mortgage, Inc)", L, flags=re.IGNORECASE)
             name = m.group(1) if m else re.sub(r"[^\w\s,]+$", "", L.strip())
             return clean_bookmark(name)
 
+    # 2) Huntington National Bank override
     for L in lines:
         if re.search(r"\bhuntington\s+national\s+bank\b", L, flags=re.IGNORECASE):
             m = re.search(r"\b(?:The\s+)?Huntington\s+National\s+Bank\b", L, flags=re.IGNORECASE)
             name = m.group(0) if m else re.sub(r"[^\w\s]+$", "", L.strip())
             return clean_bookmark(name)
 
+    # 3) UNITED NATIONS FCU override
     for L in lines:
         if re.search(r"\bunited\s+nations\s+fcu\b", L, flags=re.IGNORECASE):
             return clean_bookmark("UNITED NATIONS FCU")
 
+    # 4) LOANDEPOT COM LLC override
     for L in lines:
         if re.search(r"\bloan\s*depot\s*com\s*llc\b", L, flags=re.IGNORECASE):
             m = re.search(r"\bloan\s*depot\s*com\s*llc\b", L, flags=re.IGNORECASE)
             name = m.group(0) if m else re.sub(r"[^\w\s]+$", "", L.strip())
             return clean_bookmark(name)
 
+    # 5) "Limits based" header override (grab first non-blank NEXT line after match, clean smartly)
     for i, line in enumerate(lines):
         if "limits based on the loan amount" in line.lower():
+            # Found the trigger line — look for next non-empty line
             for j in range(i + 1, len(lines)):
                 candidate = lines[j].strip()
                 if not candidate:
                     continue
+    
+                # Normalize fancy quotes and weird spacing
                 candidate = candidate.replace("‘", "'").replace("’", "'").replace("\u00A0", " ")
+                
+                # Strip after 'Interest' if present
                 candidate = re.sub(r"\bInterest.*$", "", candidate, flags=re.IGNORECASE)
+
+                # Optionally, strip after 'and' if appears to be extra text
                 candidate = re.split(r"\band\b", candidate, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+
+                # Final trailing punctuation cleanup
                 candidate = re.sub(r"[^\w\s]+$", "", candidate)
+
                 return candidate
 
+    # 6) FCU override
     for L in lines:
         if re.search(r"\bfcu\b", L, flags=re.IGNORECASE):
             m = re.search(r"(.*?FCU)\b", L, flags=re.IGNORECASE)
             name = m.group(1) if m else re.sub(r"[^\w\s]+$", "", L.strip())
             return clean_bookmark(name)
 
+    # 7) PAYER(S)/BORROWER(S) override
     for i, header in enumerate(lower_lines):
         if "payer" in header and "borrower" in header:
-            for cand in lines[i + 1:]:
+            for cand in lines[i+1:]:
                 s = cand.strip()
                 if not s or len(set(s)) == 1 or re.search(r"[\d\$]|page", s, flags=re.IGNORECASE):
                     continue
@@ -708,23 +922,27 @@ def extract_1098mortgage_bookmark(text: str) -> str:
                 raw = re.sub(r"(?i)\s+d/b/a\s+.*$", "", raw).strip()
                 return clean_bookmark(raw)
 
+    # 8) RECIPIENT’S/LENDER’S header override
+    #    catch any line containing “recipient’s/lender’s” (ASCII or curly quotes),
+    #    then use the very next non-blank line as the mortgage company name.
     for i, L in enumerate(lines):
         if re.search(r"recipient.?s\s*/\s*lender.?s", L, flags=re.IGNORECASE):
-            for j in range(i + 1, len(lines)):
+            for j in range(i+1, len(lines)):
                 cand = lines[j].strip()
                 if not cand:
                     continue
+                # strip trailing punctuation
                 name = re.sub(r"[^\w\s]+$", "", cand)
                 return clean_bookmark(name)
 
+    # 9) fallback
     return "1098-Mortgage"
 
-def group_by_type(entries: List[Tuple[str, int, str]]) -> Dict[str, List[Tuple[str, int, str]]]:
-    d = defaultdict(list)
-    for e in entries:
-        d[e[2]].append(e)
+def group_by_type(entries: List[Tuple[str,int,str]]) -> Dict[str,List[Tuple[str,int,str]]]:
+    d=defaultdict(list)
+    for e in entries: d[e[2]].append(e)
     return d
-
+#---------------------------1098-Mortgage----------------------------------#
 def print_pdf_bookmarks(path: str):
     try:
         reader = PdfReader(path)
@@ -733,7 +951,7 @@ def print_pdf_bookmarks(path: str):
         def recurse(bms, depth=0):
             for bm in bms:
                 if isinstance(bm, list):
-                    recurse(bm, depth + 1)
+                    recurse(bm, depth+1)
                 else:
                     title = getattr(bm, 'title', str(bm))
                     print("  " * depth + f"- {title}")
@@ -741,66 +959,56 @@ def print_pdf_bookmarks(path: str):
     except Exception as e:
         logger.error(f"Error reading bookmarks from {path}: {e}")
 
-# ---------- Multi-form detector for a page ----------
-def detect_income_forms(text: str) -> List[str]:
-    t = (text or "").lower()
-    out = []
-    if ("form 1099-int" in t or "interest income" in t or "box 1. shows taxable interest" in t):
-        out.append("1099-INT")
-    if ("form 1099-div" in t or "total ordinary dividends" in t or "qualified dividends" in t):
-        out.append("1099-DIV")
-    if ("form 1099-misc" in t) or ("rents" in t and "royalties" in t and "other income" in t):
-        out.append("1099-MISC")
-    if "form 1099-oid" in t or "original issue discount" in t:
-        out.append("1099-OID")
-    if "form 1099-b" in t or "proceeds from broker" in t or "cost or other basis" in t:
-        out.append("1099-B")
-    if "form 1099-nec" in t or "nonemployee compensation" in t:
-        out.append("1099-NEC")
-    seen, res = set(), []
-    for f in out:
-        if f not in seen:
-            seen.add(f); res.append(f)
-    return res
-
+# ── Merge + bookmarks + multi-method extraction
+nek = None 
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):
+    # Prevent storing merged file inside input_dir
     abs_input = os.path.abspath(input_dir)
     abs_output = os.path.abspath(output_pdf)
     if abs_output.startswith(abs_input + os.sep):
         abs_output = os.path.join(os.path.dirname(abs_input), os.path.basename(abs_output))
-        logger.warning(f"Moved output outside: {abs_output}")
+        logger.warning(f"Moved output outside: {abs_out}")
     all_files = sorted(
-        f for f in os.listdir(abs_input)
-        if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
-        and f != os.path.basename(abs_output)
+       f for f in os.listdir(abs_input)
+       if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
+       and f != os.path.basename(abs_output)
     )
+   # remove any zero‐byte files so PdfReader never sees them
     files = []
     for f in all_files:
         p = os.path.join(abs_input, f)
         if os.path.getsize(p) == 0:
-            logger.warning(f"Skipping empty file: {f}")
-            continue
+           logger.warning(f"Skipping empty file: {f}")
+           continue
         files.append(f)
     logger.info(f"Found {len(files)} files in {abs_input}")
 
     income, expenses, others = [], [], []
+    # what bookmarks we want in workpapaer shoudl be add in this
     w2_titles = {}
     int_titles = {}
-    div_titles = {}
+    div_titles = {} # <-- Add this line
     mort_titles = {}
-    account_pages = {}   # {account_number: [(path, page_index, 'Consolidated-1099')]}
-    account_names = {}   # {account_number: issuer_name}
-    # NEW: track original classification per (file path, page index)
-    page_class: Dict[Tuple[str, int], Tuple[str, str]] = {}
+    account_pages = {}  # {account_number: [(path, page_index, 'Consolidated-1099')]}
 
     for fname in files:
         path = os.path.join(abs_input, fname)
         if fname.lower().endswith('.pdf'):
             total = len(PdfReader(path).pages)
             for i in range(total):
-                print("=" * 200, file=sys.stderr)
+                print("=" * 400, file=sys.stderr)
                 print(f"Processing: {fname}, Page {i+1}", file=sys.stderr)
+
+                # ── Print header before basic extract_text
+                print("→ extract_text() output:", file=sys.stderr)
+                try:
+                    text = extract_text(path, i)
+                    print(text or "[NO TEXT]", file=sys.stderr)
+                except Exception as e:
+                    print(f"[ERROR] extract_text failed: {e}", file=sys.stderr)
+
+                print("=" * 400, file=sys.stderr)
 
                 # Multi-method extraction
                 extracts = {}
@@ -821,18 +1029,32 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     extracts['PyPDF2'] = ""
                     print(f"[ERROR] PyPDF2 failed: {e}", file=sys.stderr)
 
-                print("→ Tesseract OCR (PyMuPDF render):", file=sys.stderr)
+                print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    doc_ocr = fitz.open(path)
-                    page_ocr = doc_ocr.load_page(i)
-                    pix = page_ocr.get_pixmap(dpi=300)
-                    img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    img = convert_from_path(path, first_page=i+1, last_page=i+1, poppler_path=POPPLER_PATH or None)[0]
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
-                    doc_ocr.close()
                     print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:
                     extracts['Tesseract'] = ""
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
+
+                print("→ FullPDF extract_text_from_pdf():", file=sys.stderr)
+                try:
+                    extracts['FullPDF'] = extract_text_from_pdf(path)
+                    print(extracts['FullPDF'], file=sys.stderr)
+                except Exception as e:
+                    extracts['FullPDF'] = ""
+                    print(f"[ERROR] FullPDF failed: {e}", file=sys.stderr)
+
+                print("→ pdfplumber:", file=sys.stderr)
+                try:
+                    with pdfplumber.open(path) as pdf:
+                        extracts['pdfplumber'] = pdf.pages[i].extract_text() or ""
+                        print(extracts['pdfplumber'], file=sys.stderr)
+                except Exception as e:
+                    extracts['pdfplumber'] = ""
+                    print(f"[ERROR] pdfplumber failed: {e}", file=sys.stderr)
+
                 print("→ PyMuPDF (fitz):", file=sys.stderr)
                 try:
                     doc = fitz.open(path)
@@ -843,9 +1065,9 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     extracts['PyMuPDF'] = ""
                     print(f"[ERROR] PyMuPDF failed: {e}", file=sys.stderr)
 
-                print("=" * 200, file=sys.stderr)
-
-                # Collect W-2 employer names across methods + payers for other forms
+                print("=" * 400, file=sys.stderr)
+              
+                # Collect W-2 employer names across methods
                 info_by_method, names = {}, []
                 for method, txt in extracts.items():
                     cat, ft = classify_text(txt)
@@ -854,10 +1076,12 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                         if info['employer_name'] != 'N/A':
                             info_by_method[method] = info
                             names.append(info['employer_name'])
+                    # --- 1099-INT bookmark extraction ---
                     if cat == 'Income' and ft == '1099-INT':
                         title = extract_1099int_bookmark(txt)
                         if title and title != '1099-INT':
                             int_titles[(path, i)] = title
+                    # <<< new DIV logic
                     if cat == 'Income' and ft == '1099-DIV':
                         title = extract_1099div_bookmark(txt)
                         if title and title != '1099-DIV':
@@ -868,23 +1092,24 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                             mort_titles[(path, i)] = title
                 if names:
                     common = Counter(names).most_common(1)[0][0]
-                    chosen = next(m for m, i_ in info_by_method.items() if i_['employer_name'] == common)
+                    chosen = next(m for m,i in info_by_method.items() if i['employer_name'] == common)
                     print(f"--- Chosen employer ({chosen}): {common} ---", file=sys.stderr)
                     print_w2_summary(info_by_method[chosen])
                     w2_titles[(path, i)] = common
 
                 # Classification & grouping
+                # … after you’ve extracted text …
                 tiered = extract_text(path, i)
+
+                # 🔍 Account Number detection
                 acct_num = extract_account_number(tiered)
                 if acct_num:
+                    # store as triple so append_and_bookmark can unpack
                     account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
-                    issuer = extract_consolidated_issuer(tiered)
-                    if issuer:
-                        account_names.setdefault(acct_num, issuer)
-                cat, ft = classify_text(tiered)
-                # NEW: remember original classification for this page
-                page_class[(path, i)] = (cat, ft)
 
+                cat, ft = classify_text(tiered)
+                
+                # NEW: log every classification
                 print(
                     f"[Classification] {os.path.basename(path)} p{i+1} → "
                     f"Category='{cat}', Form='{ft}', "
@@ -915,48 +1140,25 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             else:
                 others.append(entry)
 
-
-
-#---------------------
-    # ---- Consolidated-1099 synthesis (group ALL account pages, even singletons) ----
-    consolidated_payload = {}
-    consolidated_pages = set()
-
-    for acct, pages in account_pages.items():
-        key = f"CONSOLIDATED::{acct}"
-        consolidated_payload[key] = [(p, i, "Consolidated-1099") for (p, i, _) in pages]
-        for (p, i, _) in pages:
-            consolidated_pages.add((p, i))
-    # add one synthetic row per account so it appears under the Consolidated-1099 group
-        income.append((key, -1, "Consolidated-1099"))
-
-
     # Sort
-    income.sort(key=lambda e: (get_form_priority(e[2], 'Income'), e[0], e[1]))
-    expenses.sort(key=lambda e: (get_form_priority(e[2], 'Expenses'), e[0], e[1]))
+    income.sort(key=lambda e:(get_form_priority(e[2],'Income'), e[0], e[1]))
+    expenses.sort(key=lambda e:(get_form_priority(e[2],'Expenses'), e[0], e[1]))
 
     # merge & bookmarks
     merger = PdfMerger()
     page_num = 0
+    stop_after_na = False
     import mimetypes
-
-    # Track merged page index to allow multiple bookmarks to the same page
-    page_location: Dict[Tuple[str, int], int] = {}
-
     def append_and_bookmark(entry, parent, title):
         nonlocal page_num
         p, idx, _ = entry
-        mime_type, _ = mimetypes.guess_type(p)
+        mime_type, _mt = mimetypes.guess_type(p)
 
+        # Skip non-PDF files
         if mime_type != 'application/pdf':
             print(f"⚠️  Skipping non-PDF file: {p}", file=sys.stderr)
             return
-
-        # If already appended, just add another outline item pointing to same merged page
-        if (p, idx) in page_location:
-            merger.add_outline_item(title, page_location[(p, idx)], parent=parent)
-            return
-
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             w = PdfWriter()
             try:
@@ -965,81 +1167,47 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 tmp.flush()
                 os.fsync(tmp.fileno())
             except Exception:
+                print(f"Temp write failed: {p} p{idx+1}", file=sys.stderr)
+                traceback.print_exc()
                 print(f"⚠️  Temp write failed for {p!r} (page {idx+1}); skipping.", file=sys.stderr)
                 traceback.print_exc()
-                return
+                return 
             tmp_path = tmp.name
-
-        with open(tmp_path, 'rb') as fh:
+        with open(tmp_path,'rb') as fh:
             merger.append(fileobj=fh)
         os.unlink(tmp_path)
-
-        page_location[(p, idx)] = page_num
         merger.add_outline_item(title, page_num, parent=parent)
         page_num += 1
 
-    # ── Bookmarks
-    if income:
+    # ── Consolidated-1099 → forms (group pages by same Account Number)
+    consolidated_pages = set()
+    if account_pages:
+        consolidated_root = merger.add_outline_item("Consolidated-1099", page_num)
+        for acct, pages in account_pages.items():
+            if len(pages) <= 1:
+                continue  # group only if same account appears more than once
+            forms_node = merger.add_outline_item(f"forms (Account: {acct})", page_num, parent=consolidated_root)
+            for entry in pages:
+                # entry is (path, idx, 'Consolidated-1099')
+                append_and_bookmark(entry, forms_node, f"Account {acct}")
+                p, idx, _ = entry
+                consolidated_pages.add((p, idx))
+
+    # ── Bookmarks (skip pages already placed under Consolidated-1099)
+    if income and not stop_after_na:
         root = merger.add_outline_item('Income', page_num)
-        groups = group_by_type(income)
-        for form, grp in sorted(groups.items(), key=lambda kv: get_form_priority(kv[0], 'Income')):
-            if form == 'Consolidated-1099':
-                cons_root = merger.add_outline_item('Consolidated-1099', page_num, parent=root)
-
-                # Cache per-issuer: (issuer_node, {form_type -> form_node}, Counter)
-                issuer_nodes: Dict[str, Tuple[object, Dict[str, object], Counter]] = {}
-
-                for entry in grp:
-                    key, _, _ = entry  # "CONSOLIDATED::<acct>"
-                    acct = key.split("::", 1)[1]
-
-                    issuer_raw = account_names.get(acct)
-                    issuer_label = alias_issuer(issuer_raw) if issuer_raw else "Consolidated Issuer"
-
-                    if issuer_label not in issuer_nodes:
-                        issuer_node = merger.add_outline_item(issuer_label, page_num, parent=cons_root)
-                        issuer_nodes[issuer_label] = (issuer_node, {}, Counter())
-
-                    issuer_node, form_nodes, form_counts = issuer_nodes[issuer_label]
-
-                    for real_entry in consolidated_payload.get(key, []):
-                        p, i, _ = real_entry
-
-                        # Respect original classification
-                        orig_cat, orig_ft = page_class.get((p, i), ("Unknown", "Unused"))
-                        if orig_cat == "Others" and orig_ft == "Unused":
-                            # Put under a single Unused node per issuer
-                            if "Unused" not in form_nodes:
-                                form_nodes["Unused"] = merger.add_outline_item("Unused", page_num, parent=issuer_node)
-                            append_and_bookmark(real_entry, form_nodes["Unused"], "Unused")
-                            continue  # ← do NOT run detect_income_forms
-
-                        # Otherwise, detect forms for this page
-                        try:
-                            page_text = extract_text(p, i)
-                        except Exception:
-                            page_text = ""
-
-                        forms_here = detect_income_forms(page_text) or ["Page"]
-                        for ftype in forms_here:
-                            if ftype not in form_nodes:
-                                form_nodes[ftype] = merger.add_outline_item(ftype, page_num, parent=issuer_node)
-                            form_counts[ftype] += 1
-                            label = ftype if form_counts[ftype] == 1 else f"{ftype}#{form_counts[ftype]}"
-                            append_and_bookmark(real_entry, form_nodes[ftype], label)
-
-
-                continue  # done with Consolidated-1099
-
-            # Normal Income forms
+        for form, grp in group_by_type(income).items():
+            if stop_after_na:
+                break
             node = merger.add_outline_item(form, page_num, parent=root)
             for j, entry in enumerate(grp, 1):
                 path, idx, _ = entry
 
-                # Skip if this page was already placed under Consolidated-1099
+                # 🚫 Skip if already appended under Consolidated-1099
                 if (path, idx) in consolidated_pages:
                     continue
 
+                # build the label
                 lbl = form if len(grp) == 1 else f"{form}#{j}"
                 if form == 'W-2':
                     emp = w2_titles.get((path, idx))
@@ -1049,44 +1217,80 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     payer = int_titles.get((path, idx))
                     if payer:
                         lbl = payer
-                elif form == '1099-DIV':
+                elif form == '1099-DIV':                  # <<< new
                     payer = div_titles.get((path, idx))
                     if payer:
                         lbl = payer
+                # NEW: strip ", N.A" and stop after this bookmark
+                if ", N.A" in lbl:
+                    lbl = lbl.replace(", N.A", "")
+                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                    append_and_bookmark(entry, node, lbl)
+                    stop_after_na = True
+                    break
 
-                # Normalize trailing ", N.A."
-                lbl = re.sub(r",?\s*N\.A\.?$", "", lbl, flags=re.IGNORECASE)
-
+                # normal case
                 print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
+            if stop_after_na:
+                break
 
-    if expenses:
+    if expenses and not stop_after_na:
         root = merger.add_outline_item('Expenses', page_num)
         for form, grp in group_by_type(expenses).items():
+            if stop_after_na:
+                break
             node = merger.add_outline_item(form, page_num, parent=root)
             for j, entry in enumerate(grp, 1):
                 path, idx, _ = entry
+
+                # 🚫 Skip if already appended under Consolidated-1099
+                if (path, idx) in consolidated_pages:
+                    continue
+
                 lbl = form if len(grp) == 1 else f"{form}#{j}"
                 if form == '1098-Mortgage':
                     m = mort_titles.get((path, idx))
                     if m:
-                        lbl = m
-                lbl = re.sub(r",?\s*N\.A\.?$", "", lbl, flags=re.IGNORECASE)
+                      lbl = m
+
+                # NEW: strip ", N.A" and stop
+                if ", N.A" in lbl:
+                    lbl = lbl.replace(", N.A", "")
+                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                    append_and_bookmark(entry, node, lbl)
+                    stop_after_na = True
+                    break
+
+                # normal case
                 print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
+            if stop_after_na:
+                break
 
+    # Others        
     if others:
         root = merger.add_outline_item('Others', page_num)
         node = merger.add_outline_item('Unused', page_num, parent=root)
-        for j, entry in enumerate(others, 1):
+        for j, entry in enumerate(others,1):
             path, idx, _ = entry
-            lbl = 'Unused' if len(others) == 1 else f"Unused#{j}"
-            print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Others', Form='Unused', Title='{lbl}'", file=sys.stderr)
+
+            # 🚫 Skip if already appended under Consolidated-1099
+            if (path, idx) in consolidated_pages:
+                continue
+
+            lbl = 'Unused' if len(others)==1 else f"Unused#{j}"
+
+            print(
+                f"[Bookmark] {os.path.basename(path)} p{idx+1} → "
+                f"Category='Others', Form='Unused', Title='{lbl}'",
+                file=sys.stderr
+            )
             append_and_bookmark(entry, node, lbl)
 
     # Write merged output
     os.makedirs(os.path.dirname(abs_output), exist_ok=True)
-    with open(abs_output, 'wb') as f:
+    with open(abs_output,'wb') as f:
         merger.write(f)
     merger.close()
     print(f"Merged PDF created at {abs_output}", file=sys.stderr)
@@ -1100,23 +1304,11 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             print(f"Failed to delete {fname}: {e}", file=sys.stderr)
 
 # ── CLI
-if __name__ == '__main__':
+if __name__=='__main__':
     import argparse
     p = argparse.ArgumentParser(description="Merge PDFs with robust text extraction and cleanup")
     p.add_argument('input_dir', help="Folder containing PDFs to merge")
     p.add_argument('output_pdf', help="Path for the merged PDF (outside input_dir)")
     args = p.parse_args()
     merge_with_bookmarks(args.input_dir, args.output_pdf)
-
-
-
-
-
-
-
-
-
-
-
-
 

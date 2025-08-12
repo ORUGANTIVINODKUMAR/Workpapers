@@ -40,6 +40,17 @@ def configure_unicode():
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 configure_unicode()
 
+# Cache: {(path, page_index): extracted_text}
+PAGE_TEXT_CACHE: Dict[Tuple[str, int], str] = {}
+OCR_HITS: set[Tuple[str, int]] = set()
+
+def get_text_cached(path: str, page_index: int) -> str:
+    key = (path, page_index)
+    if key in PAGE_TEXT_CACHE:
+        return PAGE_TEXT_CACHE[key]
+    PAGE_TEXT_CACHE[key] = extract_text(path, page_index) or ""
+    return PAGE_TEXT_CACHE[key]
+
 # ── Logger setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -146,21 +157,6 @@ def extract_text_from_pdf(file_path: str) -> str:
     return text
 
 # ── OCR for images
-def extract_text_from_image(file_path: str) -> str:
-    text = ""
-    try:
-        img = Image.open(file_path)
-        if img.mode != 'RGB': img = img.convert('RGB')
-        et = pytesseract.image_to_string(img)
-        if et.strip():
-            print_phrase_context(et)
-            text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
-        else:
-            text = f"No text in image: {os.path.basename(file_path)}"
-    except Exception as e:
-        logger.error(f"Error OCR image {file_path}: {e}")
-        text = f"Error OCR image: {e}"
-    return text
 
 def extract_account_number(text: str) -> str:
     """
@@ -1107,16 +1103,3 @@ if __name__ == '__main__':
     p.add_argument('output_pdf', help="Path for the merged PDF (outside input_dir)")
     args = p.parse_args()
     merge_with_bookmarks(args.input_dir, args.output_pdf)
-
-
-
-
-
-
-
-
-
-
-
-
-

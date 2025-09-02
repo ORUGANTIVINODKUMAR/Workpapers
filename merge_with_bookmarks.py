@@ -16,7 +16,7 @@ from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
 import pytesseract
-from pdf2image import convert_from_path
+#from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber
 from PIL import Image
@@ -46,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Configuration
-POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
+#POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
 OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
@@ -85,15 +85,21 @@ def log_extraction(src: str, method: str, text: str):
 def extract_text(path: str, page_index: int) -> str:
     text = ""
     # OCR fallback
+    # OCR fallback (PyMuPDF → image → Tesseract)
     if len(text.strip()) < OCR_MIN_CHARS:
         try:
-            opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
-            img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
+            doc = fitz.open(path)
+            page = doc.load_page(page_index)
+            pix = page.get_pixmap(dpi=260)  # same as OCR_DPI
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
             t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
             print(f"[OCR full]\n{t3}", file=sys.stderr)
-            if len(t3.strip()) > len(text): text = t3
+            if len(t3.strip()) > len(text):
+                text = t3
+            doc.close()
         except Exception:
             traceback.print_exc()
+
     # PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
@@ -1404,12 +1410,17 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
 
                 print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    img = convert_from_path(path, first_page=i+1, last_page=i+1, poppler_path=POPPLER_PATH or None)[0]
+                    doc = fitz.open(path)
+                    page = doc.load_page(i)
+                    pix = page.get_pixmap(dpi=260)
+                    img = Image.open(io.BytesIO(pix.tobytes("png")))
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
+                    doc.close()
                     print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:
                     extracts['Tesseract'] = ""
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
+
 
                 print("→ FullPDF extract_text_from_pdf():", file=sys.stderr)
                 try:

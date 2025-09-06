@@ -16,7 +16,7 @@ from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
 import pytesseract
-#from pdf2image import convert_from_path
+from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber
 from PIL import Image
@@ -46,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Configuration
-#POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
+POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
 OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
@@ -84,38 +84,92 @@ def log_extraction(src: str, method: str, text: str):
 # ── Tiered text extraction for PDF pages
 def extract_text(path: str, page_index: int) -> str:
     """
-    Tiered text extraction:
-    1) Try PDFMiner
-    2) Try PyMuPDF
-    3) Try PyPDF2
-    4) OCR only if everything else failed (true scanned page)
+    Extraction logic:
+    1) Try PDFMiner, PyMuPDF, PyPDF2.
+    2) If any contains critical markers → trust and return that text.
+    3) If none contain markers → run OCR as fallback.
     """
-    # 1) PDFMiner
-    try:
-        t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        if len(t1.strip()) > OCR_MIN_CHARS:
-            return t1
-    except Exception:
-        pass
 
-    # 2) PyMuPDF
+    OCR_MIN_CHARS = 50
+    critical_markers = [
+        "w-2", "employer", "wages", "medicare wages and tips",
+        "1099-int", "1099-div", "mortgage", "dividends",
+        "interest income", "social security"
+    ]
+
+    candidates = []
+
+    # --- 1) PDFMiner ---
+    try:
+        t1 = pdfminer_extract(
+            path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS
+        ) or ""
+        print(f"[PDFMiner]\n{t1}", file=sys.stderr)
+        if t1.strip():
+            candidates.append(("PDFMiner", t1))
+    except Exception as e:
+        print(f"[PDFMiner ERROR] {e}", file=sys.stderr)
+
+    # --- 2) PyMuPDF ---
     try:
         doc = fitz.open(path)
         t2 = doc.load_page(page_index).get_text()
         doc.close()
-        if len(t2.strip()) > OCR_MIN_CHARS:
-            return t2
-    except Exception:
-        pass
+        print(f"[PyMuPDF]\n{t2}", file=sys.stderr)
+        if t2.strip():
+            candidates.append(("PyMuPDF", t2))
+    except Exception as e:
+        print(f"[PyMuPDF ERROR] {e}", file=sys.stderr)
 
-    # 3) PyPDF2
+    # --- 3) PyPDF2 ---
     try:
         reader = PdfReader(path)
         t3 = reader.pages[page_index].extract_text() or ""
-        if len(t3.strip()) > OCR_MIN_CHARS:
-            return t3
-    except Exception:
-        return ""
+        print(f"[PyPDF2]\n{t3}", file=sys.stderr)
+        if t3.strip():
+            candidates.append(("PyPDF2", t3))
+    except Exception as e:
+        print(f"[PyPDF2 ERROR] {e}", file=sys.stderr)
+
+    # --- Check candidates for critical markers ---
+    for method, txt in candidates:
+        lower = txt.lower()
+        if len(txt.strip()) > OCR_MIN_CHARS and any(m in lower for m in critical_markers):
+            print(f"[{method}] Selected (markers found)", file=sys.stderr)
+            return txt
+
+    # --- If none matched → OCR fallback ---
+    try:
+        opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
+        img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
+        t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
+        print(f"[OCR]\n{t4}", file=sys.stderr)
+        return t4
+    except Exception as e:
+        print(f"[OCR ERROR] {e}", file=sys.stderr)
+
+    # --- Fallback: return longest candidate (junk but something) ---
+    if candidates:
+        return max(candidates, key=lambda c: len(c[1]))[1]
+
+    return ""
+
+
+# ── Full‐PDF text extractor
+def extract_text_from_pdf(file_path: str) -> str:
+    text = ""
+    try:
+        with open(file_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            for i, page in enumerate(reader.pages):
+                pt = page.extract_text() or ""
+                if pt.strip():
+                    print_phrase_context(pt)
+                    text += f"\n--- Page {i+1} ---\n" + pt
+    except Exception as e:
+        logger.error(f"Error in full PDF extract {file_path}: {e}")
+        text = f"Error extracting full PDF: {e}"
+    return text
 
 # ── OCR for images
 def extract_text_from_image(file_path: str) -> str:
@@ -132,22 +186,6 @@ def extract_text_from_image(file_path: str) -> str:
         logger.error(f"Error OCR image {file_path}: {e}")
         text = f"Error OCR image: {e}"
     return text
-
-import io
-
-def pdf_page_to_image(path: str, page_index: int, dpi: int = 200):
-    """
-    Render a PDF page to a PIL.Image using PyMuPDF (fitz).
-    dpi: controls resolution (higher = sharper but slower).
-    """
-    doc = fitz.open(path)
-    page = doc.load_page(page_index)
-    zoom = dpi / 72  # 72 is default PDF resolution
-    mat = fitz.Matrix(zoom, zoom)
-    pix = page.get_pixmap(matrix=mat, alpha=False)
-    doc.close()
-    return Image.open(io.BytesIO(pix.tobytes("png")))
-
 def is_unused_page(text: str) -> bool:
     """
     Detect pages that are just year-end messages, instructions,
@@ -1390,40 +1428,57 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # Multi-method extraction
                 extracts = {}
 
+                print("→ PDFMiner:", file=sys.stderr)
                 try:
                     extracts['PDFMiner'] = pdfminer_extract(path, page_numbers=[i], laparams=PDFMINER_LA_PARAMS) or ""
+                    print(extracts['PDFMiner'], file=sys.stderr)
                 except Exception as e:
                     extracts['PDFMiner'] = ""
                     print(f"[ERROR] PDFMiner failed: {e}", file=sys.stderr)
 
+                print("→ PyPDF2:", file=sys.stderr)
                 try:
                     extracts['PyPDF2'] = PdfReader(path).pages[i].extract_text() or ""
+                    print(extracts['PyPDF2'], file=sys.stderr)
                 except Exception as e:
                     extracts['PyPDF2'] = ""
                     print(f"[ERROR] PyPDF2 failed: {e}", file=sys.stderr)
 
+                print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    img = pdf_page_to_image(path, i)
+                    img = convert_from_path(path, first_page=i+1, last_page=i+1, poppler_path=POPPLER_PATH or None)[0]
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
+                    print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:
                     extracts['Tesseract'] = ""
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
 
+                print("→ FullPDF extract_text_from_pdf():", file=sys.stderr)
+                try:
+                    extracts['FullPDF'] = extract_text_from_pdf(path)
+                    print(extracts['FullPDF'], file=sys.stderr)
+                except Exception as e:
+                    extracts['FullPDF'] = ""
+                    print(f"[ERROR] FullPDF failed: {e}", file=sys.stderr)
+
+                print("→ pdfplumber:", file=sys.stderr)
                 try:
                     with pdfplumber.open(path) as pdf:
                         extracts['pdfplumber'] = pdf.pages[i].extract_text() or ""
+                        print(extracts['pdfplumber'], file=sys.stderr)
                 except Exception as e:
                     extracts['pdfplumber'] = ""
                     print(f"[ERROR] pdfplumber failed: {e}", file=sys.stderr)
 
+                print("→ PyMuPDF (fitz):", file=sys.stderr)
                 try:
                     doc = fitz.open(path)
                     extracts['PyMuPDF'] = doc.load_page(i).get_text()
                     doc.close()
+                    print(extracts['PyMuPDF'], file=sys.stderr)
                 except Exception as e:
                     extracts['PyMuPDF'] = ""
                     print(f"[ERROR] PyMuPDF failed: {e}", file=sys.stderr)
-
 
                 print("=" * 400, file=sys.stderr)
              

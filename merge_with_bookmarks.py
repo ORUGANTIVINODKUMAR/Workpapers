@@ -83,43 +83,51 @@ def log_extraction(src: str, method: str, text: str):
 
 # ── Tiered text extraction for PDF pages
 def extract_text(path: str, page_index: int) -> str:
-    critical_markers = ["employer's name", "wages", "form 1099", "mortgage", "dividends"]
-
-    # 1) Try pdfminer
+    """
+    Tiered text extraction:
+    1) Try PDFMiner
+    2) Try PyMuPDF
+    3) Try PyPDF2
+    4) OCR only if everything else failed (true scanned page)
+    """
+    # 1) PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        if len(t1.strip()) > OCR_MIN_CHARS and any(m in t1.lower() for m in critical_markers):
+        if len(t1.strip()) > OCR_MIN_CHARS:
             return t1
     except Exception:
         pass
 
-    # 2) Try PyMuPDF
+    # 2) PyMuPDF
     try:
         doc = fitz.open(path)
         t2 = doc.load_page(page_index).get_text()
         doc.close()
-        if len(t2.strip()) > OCR_MIN_CHARS and any(m in t2.lower() for m in critical_markers):
+        if len(t2.strip()) > OCR_MIN_CHARS:
             return t2
     except Exception:
         pass
 
-    # 3) Try PyPDF2
+    # 3) PyPDF2
     try:
         reader = PdfReader(path)
         t3 = reader.pages[page_index].extract_text() or ""
-        if len(t3.strip()) > OCR_MIN_CHARS and any(m in t3.lower() for m in critical_markers):
+        if len(t3.strip()) > OCR_MIN_CHARS:
             return t3
     except Exception:
         pass
 
-    # 4) Fallback to OCR (most reliable)
-    img = pdf_page_to_image(path, page_index, dpi=150)
-    t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
-    if len(t4.strip()) < OCR_MIN_CHARS:
-        img = pdf_page_to_image(path, page_index, dpi=200)
+    # 4) Fallback → OCR (ONLY if text extractors failed)
+    try:
+        img = pdf_page_to_image(path, page_index, dpi=100)  # start lower DPI for speed
         t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
-    return t4
-
+        if len(t4.strip()) < OCR_MIN_CHARS:
+            # retry at higher DPI if initial OCR was too weak
+            img = pdf_page_to_image(path, page_index, dpi=200)
+            t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
+        return t4
+    except Exception:
+        return ""
 
 # ── OCR for images
 def extract_text_from_image(file_path: str) -> str:

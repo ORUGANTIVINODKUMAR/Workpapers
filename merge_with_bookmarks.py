@@ -115,18 +115,6 @@ def extract_text(path: str, page_index: int) -> str:
         if len(t3.strip()) > OCR_MIN_CHARS:
             return t3
     except Exception:
-        pass
-
-    # 4) Fallback → OCR (ONLY if text extractors failed)
-    try:
-        img = pdf_page_to_image(path, page_index, dpi=100)  # start lower DPI for speed
-        t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
-        if len(t4.strip()) < OCR_MIN_CHARS:
-            # retry at higher DPI if initial OCR was too weak
-            img = pdf_page_to_image(path, page_index, dpi=200)
-            t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
-        return t4
-    except Exception:
         return ""
 
 # ── OCR for images

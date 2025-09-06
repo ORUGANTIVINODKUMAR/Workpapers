@@ -1420,107 +1420,45 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
         if fname.lower().endswith('.pdf'):
             total = len(PdfReader(path).pages)
             for i in range(total):
-                print("=" * 400, file=sys.stderr)
+                print("=" * 120, file=sys.stderr)
                 print(f"Processing: {fname}, Page {i+1}", file=sys.stderr)
 
-                # ── Print header before basic extract_text
-                print("=" * 400, file=sys.stderr)
-                print(f"Processing: {fname}, Page {i+1}", file=sys.stderr)
-
-# 🔹 Collect all methods in one pass
-                extracts = {}
-
-# PDFMiner
+            # 🔹 Only call your tiered extractor once
                 try:
-                    extracts['PDFMiner'] = pdfminer_extract(path, page_numbers=[i], laparams=PDFMINER_LA_PARAMS) or ""
+                    text = extract_text(path, i)
+                    snippet = text[:300].replace("\n", " ")
+                    print(f"[Chosen Extract] {snippet}", file=sys.stderr)
                 except Exception as e:
-                    extracts['PDFMiner'] = f"[ERROR] PDFMiner: {e}"
+                    print(f"[ERROR] extract_text failed: {e}", file=sys.stderr)
+                    text = ""
 
-# PyMuPDF
-                try:
-                    doc = fitz.open(path)
-                    extracts['PyMuPDF'] = doc.load_page(i).get_text()
-                    doc.close()
-                except Exception as e:
-                    extracts['PyMuPDF'] = f"[ERROR] PyMuPDF: {e}"
+                print("=" * 120, file=sys.stderr)
 
-# PyPDF2
-                try:
-                    extracts['PyPDF2'] = PdfReader(path).pages[i].extract_text() or ""
-                except Exception as e:
-                    extracts['PyPDF2'] = f"[ERROR] PyPDF2: {e}"
 
-# OCR via PyMuPDF → PIL
-                try:
-                    img = pdf_page_to_image(path, i, dpi=150)
-                    extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
-                except Exception as e:
-                    extracts['Tesseract'] = f"[ERROR] Tesseract: {e}"
+# 🔹 Choose which text to trust# 🔹 Classification directly on chosen text
+                cat, ft = classify_text(text)
 
-                print("→ Extracted text by method:", file=sys.stderr)
-                for method, txt in extracts.items():
-                    snippet = txt[:300].replace("\n", " ")
-                    print(f"   [{method}] {snippet}", file=sys.stderr)
+                if cat == 'Income' and ft == 'W-2':
+                    info = parse_w2(text)
+                    if info['employer_name'] != 'N/A':
+                        w2_titles[(path, i)] = info['employer_name']
 
-                print("=" * 400, file=sys.stderr)
+                if cat == 'Income' and ft == '1099-INT':
+                    title = extract_1099int_bookmark(text)
+                    if title and title != '1099-INT':
+                        int_titles[(path, i)] = title
 
-# 🔹 Choose which text to trust
-                text = extract_text(path, i)   # uses your tiered logic with markers
+                if cat == 'Income' and ft == '1099-DIV':
+                    title = extract_1099div_bookmark(text)
+                    if title and title != '1099-DIV':
+                        div_titles[(path, i)] = title
 
-             
+                if cat == 'Expenses' and ft == '1098-Mortgage':
+                    title = extract_1098mortgage_bookmark(text)
+                    if title and title != '1098-Mortgage':
+                        mort_titles[(path, i)] = title
 
-                # Collect W-2 employer names across methods
-                info_by_method, names = {}, []
-                for method, txt in extracts.items():
-                    cat, ft = classify_text(txt)
-                    if cat == 'Income' and ft == 'W-2':
-                        info = parse_w2(txt)
-                        if info['employer_name'] != 'N/A':
-                            info_by_method[method] = info
-                            names.append(info['employer_name'])
-                    # --- 1099-INT bookmark extraction ---
-                    if cat == 'Income' and ft == '1099-INT':
-                        title = extract_1099int_bookmark(txt)
-                        if title and title != '1099-INT':
-                            int_titles[(path, i)] = title
-                    # <<< new DIV logic
-                    if cat == 'Income' and ft == '1099-DIV':
-                        title = extract_1099div_bookmark(txt)
-                        if title and title != '1099-DIV':
-                            div_titles[(path, i)] = title
-                    if cat == 'Expenses' and ft == '1098-Mortgage':
-                        title = extract_1098mortgage_bookmark(txt)
-                        if title and title != '1098-Mortgage':
-                            mort_titles[(path, i)] = title
-                if names:
-                    common = Counter(names).most_common(1)[0][0]
-                    chosen = next(m for m,i in info_by_method.items() if i['employer_name'] == common)
-                    print(f"--- Chosen employer ({chosen}): {common} ---", file=sys.stderr)
-                    print_w2_summary(info_by_method[chosen])
-                    w2_titles[(path, i)] = common
-
-                # Classification & grouping
-                    # … after you’ve extracted text …
-                   # NEW: {acct: "Issuer Name"}
-
-                tiered = extract_text(path, i)
-                acct_num = extract_account_number(tiered)
-                if acct_num:
-                    account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
-                # NEW: capture issuer name for this account if present
-                    issuer = extract_consolidated_issuer(tiered)
-                    if issuer:
-                        account_names.setdefault(acct_num, issuer)
-                cat, ft = classify_text(tiered)
-               
-                # NEW: log every classification
-                print(
-                    f"[Classification] {os.path.basename(path)} p{i+1} → "
-                    f"Category='{cat}', Form='{ft}', "
-                    f"snippet='{tiered[:150].strip().replace(chr(80),' ')}…'",
-                    file=sys.stderr
-                )
-
+                # Save entry
                 entry = (path, i, ft)
                 if cat == 'Income':
                     income.append(entry)
@@ -1528,21 +1466,6 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     expenses.append(entry)
                 else:
                     others.append(entry)
-
-        else:
-            # Image handling
-            print(f"\n=== Image {fname} ===", file=sys.stderr)
-            oi = extract_text_from_image(path)
-            print("--- OCR Image ---", file=sys.stderr)
-            print(oi, file=sys.stderr)
-            cat, ft = classify_text(oi)
-            entry = (path, 0, ft)
-            if cat == 'Income':
-                income.append(entry)
-            elif cat == 'Expenses':
-                expenses.append(entry)
-            else:
-                others.append(entry)
 
    
     # ---- Consolidated-1099 synthesis (insert this BEFORE income.sort(...)) ----

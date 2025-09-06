@@ -16,7 +16,7 @@ from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
 import pytesseract
-from pdf2image import convert_from_path
+#from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber
 from PIL import Image
@@ -46,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Configuration
-POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
+#POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
 OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
@@ -87,8 +87,9 @@ def extract_text(path: str, page_index: int) -> str:
     # OCR fallback
     if len(text.strip()) < OCR_MIN_CHARS:
         try:
-            opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
-            img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
+            #opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
+            # NEW (fitz only)
+            img = pdf_page_to_image(path, page_index)            
             t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
             print(f"[OCR full]\n{t3}", file=sys.stderr)
             if len(t3.strip()) > len(text): text = t3
@@ -144,6 +145,22 @@ def extract_text_from_image(file_path: str) -> str:
         logger.error(f"Error OCR image {file_path}: {e}")
         text = f"Error OCR image: {e}"
     return text
+
+import io
+
+def pdf_page_to_image(path: str, page_index: int, dpi: int = 200):
+    """
+    Render a PDF page to a PIL.Image using PyMuPDF (fitz).
+    dpi: controls resolution (higher = sharper but slower).
+    """
+    doc = fitz.open(path)
+    page = doc.load_page(page_index)
+    zoom = dpi / 72  # 72 is default PDF resolution
+    mat = fitz.Matrix(zoom, zoom)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    doc.close()
+    return Image.open(io.BytesIO(pix.tobytes("png")))
+
 def is_unused_page(text: str) -> bool:
     """
     Detect pages that are just year-end messages, instructions,
@@ -1404,7 +1421,8 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
 
                 print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    img = convert_from_path(path, first_page=i+1, last_page=i+1, poppler_path=POPPLER_PATH or None)[0]
+                    # NEW
+                    img = pdf_page_to_image(path, i)
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
                     print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:

@@ -15,25 +15,16 @@ from pdfminer.high_level import extract_text as pdfminer_extract
 from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
-import pytesseract
-#from pdf2image import convert_from_path
+import pytesseract 
+#rom pdf2image import convert_from_path
 import fitz  # PyMuPDF
-import pdfplumber
+#import pdfplumber
 from PIL import Image
 import logging
 
 # Add the helper at the [To get bookmark for]
 PHRASE = "Employer's name, address, and ZIP code"
 INT_PHRASE = "Interest income"
-
-def pdf_page_to_image(path: str, page_index: int, dpi: int = 150) -> Image.Image:
-    doc = fitz.open(path)
-    page = doc.load_page(page_index)
-    zoom = dpi / 72  # PDF default resolution = 72
-    mat = fitz.Matrix(zoom, zoom)
-    pix = page.get_pixmap(matrix=mat, alpha=False)
-    doc.close()
-    return Image.open(io.BytesIO(pix.tobytes("png")))
 
 
 def print_phrase_context(text: str, phrase: str = PHRASE, num_lines: int = 2):
@@ -55,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Configuration
-#POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
+#OPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
 OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
@@ -89,95 +80,86 @@ def get_form_priority(ftype: str, category: str) -> int:
 def log_extraction(src: str, method: str, text: str):
     snippet = text[:2000].replace('\n',' ') + ('...' if len(text)>2000 else '')
     logger.info(f"[{method}] {os.path.basename(src)} → '{snippet}'")
+import io
+import fitz
+from PIL import Image
+
+def pdf_page_to_image(path: str, page_index: int, dpi: int = 300) -> Image.Image:
+    import io
+    doc = fitz.open(path)
+    page = doc.load_page(page_index)
+
+    # Scale for DPI
+    zoom = dpi / 72
+    mat = fitz.Matrix(zoom, zoom)
+
+    # Render with high quality (alpha=False = no transparency)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+
+    # Extra: convert to grayscale for OCR
+    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
+
+    # Optional: Binarize (thresholding) to boost OCR accuracy
+    img = img.point(lambda x: 0 if x < 200 else 255, "1")
+
+    doc.close()
+    return img
+
 
 # ── Tiered text extraction for PDF pages
 def extract_text(path: str, page_index: int) -> str:
-    """
-    Extraction logic:
-    1) Try PDFMiner, PyMuPDF, PyPDF2.
-    2) If any contains critical markers → trust and return that text.
-    3) If none contain markers → run OCR as fallback.
-    """
+    text = ""
+    # OCR fallback
+    if len(text.strip()) < OCR_MIN_CHARS:
+        try:
+        # 🔹 Start with higher DPI for sharper OCR
+            for dpi in (200, 300):
+                img = pdf_page_to_image(path, page_index, dpi=dpi)
 
-    OCR_MIN_CHARS = 50
-    critical_markers = [
-        "w-2", "employer", "wages", "medicare wages and tips",
-        "1099-int", "1099-div", "mortgage", "dividends",
-        "interest income", "social security"
-    ]
+            # 🔹 Preprocess: convert to grayscale + threshold (binarization)
+                gray = img.convert("L")
+                bw = gray.point(lambda x: 0 if x < 180 else 255, '1')  # simple binarization
 
-    candidates = []
+            # 🔹 OCR with stronger settings
+                t_ocr = pytesseract.image_to_string(
+                    bw,
+                    lang="eng",
+                    config="--oem 3 --psm 6"   # OEM 3 = default LSTM, PSM 6 = block of text
+                ) or ""
 
-    # --- 1) PDFMiner ---
+                print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
+
+                if len(t_ocr.strip()) > len(text):
+                    text = t_ocr
+
+            # ✅ stop early if OCR result is strong
+                if len(text.strip()) >= OCR_MIN_CHARS:
+                    break
+
+        except Exception:
+            traceback.print_exc()
+
+    # PDFMiner
     try:
-        t1 = pdfminer_extract(
-            path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS
-        ) or ""
-        print(f"[PDFMiner]\n{t1}", file=sys.stderr)
-        if t1.strip():
-            candidates.append(("PDFMiner", t1))
-    except Exception as e:
-        print(f"[PDFMiner ERROR] {e}", file=sys.stderr)
-
-    # --- 2) PyMuPDF ---
-    try:
-        doc = fitz.open(path)
-        t2 = doc.load_page(page_index).get_text()
-        doc.close()
-        print(f"[PyMuPDF]\n{t2}", file=sys.stderr)
-        if t2.strip():
-            candidates.append(("PyMuPDF", t2))
-    except Exception as e:
-        print(f"[PyMuPDF ERROR] {e}", file=sys.stderr)
-
-    # --- 3) PyPDF2 ---
-    try:
-        reader = PdfReader(path)
-        t3 = reader.pages[page_index].extract_text() or ""
-        print(f"[PyPDF2]\n{t3}", file=sys.stderr)
-        if t3.strip():
-            candidates.append(("PyPDF2", t3))
-    except Exception as e:
-        print(f"[PyPDF2 ERROR] {e}", file=sys.stderr)
-
-    # --- Check candidates for critical markers ---
-    for method, txt in candidates:
-        lower = txt.lower()
-        if len(txt.strip()) > OCR_MIN_CHARS and any(m in lower for m in critical_markers):
-            print(f"[{method}] Selected (markers found)", file=sys.stderr)
-            return txt
-
-    # --- If none matched → OCR fallback ---
-    try:
-        img = pdf_page_to_image(path, page_index, dpi=150)
-        t4 = pytesseract.image_to_string(img, config="--psm 6") or ""
-        print(f"[OCR]\n{t4}", file=sys.stderr)
-        return t4
-    except Exception as e:
-        print(f"[OCR ERROR] {e}", file=sys.stderr)
-
-    # --- Fallback: return longest candidate (junk but something) ---
-    if candidates:
-        return max(candidates, key=lambda c: len(c[1]))[1]
-
-    return ""
-
+        t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
+        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
+        if len(t1.strip()) > len(text): text = t1
+    except Exception:
+        traceback.print_exc()
+    # PyPDF2 fallback
+    if len(text.strip()) < OCR_MIN_CHARS:
+        try:
+            reader = PdfReader(path)
+            t2 = reader.pages[page_index].extract_text() or ""
+            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
+            if len(t2.strip()) > len(text): text = t2
+        except Exception:
+            traceback.print_exc()
+   
+    return text
 
 # ── Full‐PDF text extractor
-def extract_text_from_pdf(file_path: str) -> str:
-    text = ""
-    try:
-        with open(file_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            for i, page in enumerate(reader.pages):
-                pt = page.extract_text() or ""
-                if pt.strip():
-                    print_phrase_context(pt)
-                    text += f"\n--- Page {i+1} ---\n" + pt
-    except Exception as e:
-        logger.error(f"Error in full PDF extract {file_path}: {e}")
-        text = f"Error extracting full PDF: {e}"
-    return text
+
 
 # ── OCR for images
 def extract_text_from_image(file_path: str) -> str:
@@ -214,8 +196,33 @@ def is_unused_page(text: str) -> bool:
         or "new for 2023 tax year" in lower                # ✅ explicit year
         or "new for 2024 tax year" in lower
         or "new for 2025 tax year" in lower
+        or "new for 2025 tax year" in lower
+        or "that are necessary for tax" in lower
+        or "please note there may be a slight timing" in lower
+        or "account statement will not have included" in lower
+       
         or "tax lot closed on a first in" in lower
+        or "your form 1099 composite may include the following internal revenue service " in lower
+        or "schwab provides your form 1099 tax information as early" in lower
+        or "if you have any questions or need additional information about your" in lower
+        or "schwab is not providing cost basis" in lower
+        or "the amount displayed in this column has been adjusted for option premiums" in lower
+        or "you may select a different cost basis method for your brokerage" in lower
+        or "to view and change your default cost basis" in lower
+        or "this information is not intended to be a substitue for specific individualized" in lower
+        or "shares will be gifted based on your default cost basis" in lower
+        or "if you sell shares at a loss and buy additional shares" in lower
+        or "we are required to send you a corrected from with the revisions clearly marked" in lower
+        or "referenced to indicate individual items that make up the totals appearing" in lower
+        or "issuers of the securities in your account reallocated certain income distribution" in lower
+        or "the amount shown may be dividends a corporation paid directly" in lower
+        or "if this form includes amounts belonging to another person" in lower
+        or "spouse is not required to file a nominee return to show" in lower
+        or "character when passed through or distributed to its direct or in" in lower
+        or "brokers and barter exchanges must report proceeds from" in lower
         or "first in first out basis" in lower
+        or "See the instructions for your Schedule D" in lower
+        or "other property received in a reportable change in control or capital" in lower
         or "enclosed is your" in lower and "consolidated tax statement" in lower  # ✅ catch intro line
         or "filing your taxes" in lower and "turbotax" in lower                   # ✅ catch import instructions
         or ("details of" in lower and "investment activity" in lower)
@@ -229,6 +236,11 @@ def extract_account_number(text: str) -> str:
     - Handles 'ORIGINAL: ####' format
     Returns None if nothing found.
     """
+    #Account Number
+    #2360-9180
+    match = re.search(r"Account\s*Number[:\s]*([\d\-]+)", text, re.IGNORECASE)
+    if match:
+        return match.group(1).replace(" ", "").strip()
     # First try to capture "Account Number:"
     match = re.search(r"Account Number:\s*([\d\s]+)", text, re.IGNORECASE)
     if match:
@@ -243,6 +255,8 @@ def extract_account_number(text: str) -> str:
     match = re.search(r"Account\s+(\d+)", text, re.IGNORECASE)
     if match:
         return match.group(1).strip()
+   
+
     return None
 
 
@@ -381,11 +395,11 @@ def classify_text_multi(text: str) -> list[str]:
     lower = text.lower()
     matches = []
 
-    has_int = "1099-int" in lower or "form 1099-int" in lower
+    has_int = ("1099-int" in lower or "form 1099-int" in lower) and has_nonzero_int(text)
     has_div = ("total ordinary dividends" in lower or "qualified dividends" in lower) and has_nonzero_div(text)
 
     # Other forms
-    if "1099-b" in lower or "form 1099-b" in lower or has_nonzero_b(text):                                         
+    if "1099-b" in lower or "form 1099-b" in lower or has_nonzero_b(text):                                        
         if has_nonzero_b(text):
             matches.append("1099-B")
 
@@ -406,7 +420,7 @@ def classify_text_multi(text: str) -> list[str]:
         "box e checked": "LT-E",
         "box f checked": "LT-F",
     }
-    
+   
     for key, label in box_map.items():
         if key in lower:
             matches.append(label)
@@ -420,6 +434,10 @@ def classify_text_multi(text: str) -> list[str]:
 
         if cond1 or cond2:
             matches.append("1099-INT & DIV Description")
+        elif cond1:
+            matches.append("1099-DIV Description")
+        elif cond2:
+            matches.append("1099-INT Description")
         else:
             matches.append("1099-INT")
             matches.append("1099-DIV")
@@ -733,7 +751,21 @@ def parse_w2(text: str) -> Dict[str, str]:
     lines: List[str] = text.splitlines()
     emp_name = emp_addr = "N/A"
     bookmark = None
-   
+    full_lower = text.lower()
+
+    # 🔹 1) FCA US LLC override
+    if any(v in full_lower for v in ("fca us llc", "fca us, llc", "fcaus llc")):
+        emp_name = "FCA US LLC"
+        return {
+            'ssn': ssn,
+            'ein': ein,
+            'employer_name': emp_name,
+            'employer_address': emp_addr,
+            'employee_name': 'N/A',
+            'employee_address': 'N/A',
+            'bookmark': emp_name
+        }
+        
     marker = (
         "c Employer's name, address, and ZIP code "
         "8 Allocated tips 3 Social security wages 4 Social security tax withheld"
@@ -750,6 +782,7 @@ def parse_w2(text: str) -> Dict[str, str]:
             if j < len(lines):
                 raw = lines[j].strip()
                 # only proceed if this line really starts with a letter
+                
                 if re.match(r'^[A-Za-z]', raw):
                     # strip off the numeric tail
                     m = re.match(r'^(.+?)\s+\d', raw)
@@ -766,7 +799,8 @@ def parse_w2(text: str) -> Dict[str, str]:
                     }
             break  # no valid next line, so stop looking
     for i, line in enumerate(lines):
-            if "0000000845 - PAYROL" in line:
+            # Match anything (numbers/letters/mixed) followed by " - PAYROL"
+        if re.search(r".+\s*-\s*PAYROL", line, re.IGNORECASE):
                 j = i + 1
                 while j < len(lines) and not lines[j].strip():
                     j += 1
@@ -934,25 +968,35 @@ def parse_w2(text: str) -> Dict[str, str]:
         }
        #-----------------------------------------
     # 2) Standard W-2 parsing
+    # 2) Standard W-2 parsing
     for i, line in enumerate(lines):
         if "employer" in line.lower() and "name" in line.lower():
-            # next non-blank = name
+        # next non-blank = name
             j = i + 1
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
-                parts = [p.strip() for p in re.split(r"[|]", lines[j])]
+                raw = lines[j].strip()
+
+            # 🚫 Skip if OCR picked up junk lines
+                if any(skip in raw.lower() for skip in ("omb", "form w-2", "department of the treasury", "irs")):
+                    continue
+                if re.match(r'^\d{3,}$', raw):  # numeric-only junk
+                    continue
+
+                parts = [p.strip() for p in re.split(r"[|]", raw)]
                 for p in parts:
                     if p and re.search(r"[A-Za-z]", p) and not re.match(r"^\d", p):
                         emp_name = normalize_entity_name(p)
                         break
                 j += 1
-            # next non-blank = address
+        # next non-blank = address
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
                 emp_addr = lines[j].strip()
             break
+
 
     # dedupe if found
     if emp_name != "N/A":
@@ -1382,7 +1426,7 @@ def classify_div_int(text: str) -> str | None:
     if div_match:
         return "1099-DIV"
     elif int_match:
-        return "1099-INT dec"
+        return "1099-INT"
     return None
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):
@@ -1420,45 +1464,97 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
         if fname.lower().endswith('.pdf'):
             total = len(PdfReader(path).pages)
             for i in range(total):
-                print("=" * 120, file=sys.stderr)
+                print("=" * 400, file=sys.stderr)
                 print(f"Processing: {fname}, Page {i+1}", file=sys.stderr)
 
-            # 🔹 Only call your tiered extractor once
+                # ── Print header before basic extract_text
+                print("→ extract_text() output:", file=sys.stderr)
                 try:
                     text = extract_text(path, i)
-                    snippet = text[:300].replace("\n", " ")
-                    print(f"[Chosen Extract] {snippet}", file=sys.stderr)
+                    print(text or "[NO TEXT]", file=sys.stderr)
                 except Exception as e:
                     print(f"[ERROR] extract_text failed: {e}", file=sys.stderr)
-                    text = ""
 
-                print("=" * 120, file=sys.stderr)
+                print("=" * 400, file=sys.stderr)
+
+                # Multi-method extraction
+                extracts = {}
+
+                print("→ PDFMiner:", file=sys.stderr)
+                try:
+                    extracts['PDFMiner'] = pdfminer_extract(path, page_numbers=[i], laparams=PDFMINER_LA_PARAMS) or ""
+                    print(extracts['PDFMiner'], file=sys.stderr)
+                except Exception as e:
+                    extracts['PDFMiner'] = ""
+                    print(f"[ERROR] PDFMiner failed: {e}", file=sys.stderr)
+
+                
+
+                print("→ Tesseract OCR:", file=sys.stderr)
+                try:
+                    img = pdf_page_to_image(path, i, dpi=150)  # ✅ use your PyMuPDF helper
+                    extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
+                    print(extracts['Tesseract'], file=sys.stderr)
+                except Exception as e:
+                    extracts['Tesseract'] = ""
+                    print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
 
 
-# 🔹 Choose which text to trust# 🔹 Classification directly on chosen text
-                cat, ft = classify_text(text)
+                print("=" * 400, file=sys.stderr)
+             
 
-                if cat == 'Income' and ft == 'W-2':
-                    info = parse_w2(text)
-                    if info['employer_name'] != 'N/A':
-                        w2_titles[(path, i)] = info['employer_name']
+                # Collect W-2 employer names across methods
+                info_by_method, names = {}, []
+                for method, txt in extracts.items():
+                    cat, ft = classify_text(txt)
+                    if cat == 'Income' and ft == 'W-2':
+                        info = parse_w2(txt)
+                        if info['employer_name'] != 'N/A':
+                            info_by_method[method] = info
+                            names.append(info['employer_name'])
+                    # --- 1099-INT bookmark extraction ---
+                    if cat == 'Income' and ft == '1099-INT':
+                        title = extract_1099int_bookmark(txt)
+                        if title and title != '1099-INT':
+                            int_titles[(path, i)] = title
+                    # <<< new DIV logic
+                    if cat == 'Income' and ft == '1099-DIV':
+                        title = extract_1099div_bookmark(txt)
+                        if title and title != '1099-DIV':
+                            div_titles[(path, i)] = title
+                    if cat == 'Expenses' and ft == '1098-Mortgage':
+                        title = extract_1098mortgage_bookmark(txt)
+                        if title and title != '1098-Mortgage':
+                            mort_titles[(path, i)] = title
+                if names:
+                    common = Counter(names).most_common(1)[0][0]
+                    chosen = next(m for m,i in info_by_method.items() if i['employer_name'] == common)
+                    print(f"--- Chosen employer ({chosen}): {common} ---", file=sys.stderr)
+                    print_w2_summary(info_by_method[chosen])
+                    w2_titles[(path, i)] = common
 
-                if cat == 'Income' and ft == '1099-INT':
-                    title = extract_1099int_bookmark(text)
-                    if title and title != '1099-INT':
-                        int_titles[(path, i)] = title
+                # Classification & grouping
+                    # … after you’ve extracted text …
+                   # NEW: {acct: "Issuer Name"}
 
-                if cat == 'Income' and ft == '1099-DIV':
-                    title = extract_1099div_bookmark(text)
-                    if title and title != '1099-DIV':
-                        div_titles[(path, i)] = title
+                tiered = extract_text(path, i)
+                acct_num = extract_account_number(tiered)
+                if acct_num:
+                    account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
+                # NEW: capture issuer name for this account if present
+                    issuer = extract_consolidated_issuer(tiered)
+                    if issuer:
+                        account_names.setdefault(acct_num, issuer)
+                cat, ft = classify_text(tiered)
+               
+                # NEW: log every classification
+                print(
+                    f"[Classification] {os.path.basename(path)} p{i+1} → "
+                    f"Category='{cat}', Form='{ft}', "
+                    f"snippet='{tiered[:150].strip().replace(chr(80),' ')}…'",
+                    file=sys.stderr
+                )
 
-                if cat == 'Expenses' and ft == '1098-Mortgage':
-                    title = extract_1098mortgage_bookmark(text)
-                    if title and title != '1098-Mortgage':
-                        mort_titles[(path, i)] = title
-
-                # Save entry
                 entry = (path, i, ft)
                 if cat == 'Income':
                     income.append(entry)
@@ -1466,6 +1562,21 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     expenses.append(entry)
                 else:
                     others.append(entry)
+
+        else:
+            # Image handling
+            print(f"\n=== Image {fname} ===", file=sys.stderr)
+            oi = extract_text_from_image(path)
+            print("--- OCR Image ---", file=sys.stderr)
+            print(oi, file=sys.stderr)
+            cat, ft = classify_text(oi)
+            entry = (path, 0, ft)
+            if cat == 'Income':
+                income.append(entry)
+            elif cat == 'Expenses':
+                expenses.append(entry)
+            else:
+                others.append(entry)
 
    
     # ---- Consolidated-1099 synthesis (insert this BEFORE income.sort(...)) ----

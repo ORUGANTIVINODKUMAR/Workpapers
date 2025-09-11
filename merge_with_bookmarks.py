@@ -78,7 +78,7 @@ def get_form_priority(ftype: str, category: str) -> int:
 
 # ── Logging helper
 def log_extraction(src: str, method: str, text: str):
-    snippet = text[:2000].replace('\n',' ') + ('...' if len(text)>2000 else '')
+    snippet = text[:1000].replace('\n',' ') + ('...' if len(text)>1000 else '')
     logger.info(f"[{method}] {os.path.basename(src)} → '{snippet}'")
 import io
 import fitz
@@ -104,78 +104,75 @@ def pdf_page_to_image(path: str, page_index: int, dpi: int = 300) -> Image.Image
 
     doc.close()
     return img
+#to define debig_snippet
+def debug_snippet(label: str, text: str, max_len: int = 200):
+    """
+    Print a short snippet of extracted text for debugging.
+    Avoids dumping huge pages to stderr.
+    """
+    snippet = (text[:max_len].replace("\n", " ") + ("..." if len(text) > max_len else ""))
+    print(f"[{label}] {snippet}", file=sys.stderr)
 
 
 # ── Tiered text extraction for PDF pages
+critical_markers = [
+    "w-2", "employer", "wages", "medicare wages and tips",
+    "1099-int", "1099-div", "mortgage", "dividends",
+    "interest income", "social security"
+]
+
 def extract_text(path: str, page_index: int) -> str:
-    text = ""
-    # OCR fallback
-    if len(text.strip()) < OCR_MIN_CHARS:
-        try:
-        # 🔹 Start with higher DPI for sharper OCR
-            for dpi in (200, 300):
-                img = pdf_page_to_image(path, page_index, dpi=dpi)
-
-            # 🔹 Preprocess: convert to grayscale + threshold (binarization)
-                gray = img.convert("L")
-                bw = gray.point(lambda x: 0 if x < 180 else 255, '1')  # simple binarization
-
-            # 🔹 OCR with stronger settings
-                t_ocr = pytesseract.image_to_string(
-                    bw,
-                    lang="eng",
-                    config="--oem 3 --psm 6"   # OEM 3 = default LSTM, PSM 6 = block of text
-                ) or ""
-
-                print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
-
-                if len(t_ocr.strip()) > len(text):
-                    text = t_ocr
-
-            # ✅ stop early if OCR result is strong
-                if len(text.strip()) >= OCR_MIN_CHARS:
-                    break
-
-        except Exception:
-            traceback.print_exc()
-
-    # PDFMiner
+    # 1. PDFMiner first
+    text_pdfminer = ""
     try:
-        t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
-        if len(t1.strip()) > len(text): text = t1
+        text_pdfminer = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
+        debug_snippet("PDFMiner", text_pdfminer)
     except Exception:
         traceback.print_exc()
-    # PyPDF2 fallback
-    if len(text.strip()) < OCR_MIN_CHARS:
-        try:
-            reader = PdfReader(path)
-            t2 = reader.pages[page_index].extract_text() or ""
-            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
-            if len(t2.strip()) > len(text): text = t2
-        except Exception:
-            traceback.print_exc()
-   
-    return text
+
+    # 2. PyPDF2 next
+    text_pypdf2 = ""
+    try:
+        reader = PdfReader(path)
+        text_pypdf2 = reader.pages[page_index].extract_text() or ""
+        debug_snippet("PyPDF2", text_pypdf2)
+    except Exception:
+        traceback.print_exc()
+
+    # 3. Combine both
+    combined_text = text_pdfminer if len(text_pdfminer) >= len(text_pypdf2) else text_pypdf2
+
+    # 4. Check critical markers
+    lower_texts = (text_pdfminer + " " + text_pypdf2).lower()
+    if any(marker in lower_texts for marker in critical_markers):
+        return combined_text
+
+    # 5. If no markers found → OCR fallback
+    try:
+        for dpi in (200, 300):
+            img = pdf_page_to_image(path, page_index, dpi=dpi)
+            gray = img.convert("L")
+            bw = gray.point(lambda x: 0 if x < 180 else 255, '1')
+            t_ocr = pytesseract.image_to_string(
+                bw, lang="eng", config="--oem 3 --psm 6"
+            ) or ""
+            debug_snippet(f"OCR dpi={dpi}", t_ocr)
+
+            if any(marker in t_ocr.lower() for marker in critical_markers):
+                return t_ocr
+            if len(t_ocr.strip()) > len(combined_text.strip()):
+                combined_text = t_ocr
+    except Exception:
+        traceback.print_exc()
+
+    return combined_text
+
 
 # ── Full‐PDF text extractor
 
 
 # ── OCR for images
-def extract_text_from_image(file_path: str) -> str:
-    text = ""
-    try:
-        img = Image.open(file_path)
-        if img.mode!='RGB': img = img.convert('RGB')
-        et = pytesseract.image_to_string(img)
-        if et.strip():
-            print_phrase_context(et)
-            text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
-        else: text = f"No text in image: {os.path.basename(file_path)}"
-    except Exception as e:
-        logger.error(f"Error OCR image {file_path}: {e}")
-        text = f"Error OCR image: {e}"
-    return text
+
 def is_unused_page(text: str) -> bool:
     """
     Detect pages that are just year-end messages, instructions,
@@ -1537,21 +1534,21 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     # … after you’ve extracted text …
                    # NEW: {acct: "Issuer Name"}
 
-                tiered = extract_text(path, i)
-                acct_num = extract_account_number(tiered)
+                #tiered = extract_text(path, i)
+                acct_num = extract_account_number(text)
                 if acct_num:
                     account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
                 # NEW: capture issuer name for this account if present
-                    issuer = extract_consolidated_issuer(tiered)
+                    issuer = extract_consolidated_issuer(text)
                     if issuer:
                         account_names.setdefault(acct_num, issuer)
-                cat, ft = classify_text(tiered)
+                cat, ft = classify_text(text)
                
                 # NEW: log every classification
                 print(
                     f"[Classification] {os.path.basename(path)} p{i+1} → "
                     f"Category='{cat}', Form='{ft}', "
-                    f"snippet='{tiered[:150].strip().replace(chr(80),' ')}…'",
+                    f"snippet='{text[:150].strip().replace(chr(80),' ')}…'",
                     file=sys.stderr
                 )
 

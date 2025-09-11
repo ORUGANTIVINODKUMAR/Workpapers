@@ -15,10 +15,10 @@ from pdfminer.high_level import extract_text as pdfminer_extract
 from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
-import pytesseract 
-#rom pdf2image import convert_from_path
+import pytesseract
+from pdf2image import convert_from_path
 import fitz  # PyMuPDF
-#import pdfplumber
+import pdfplumber
 from PIL import Image
 import logging
 
@@ -46,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Configuration
-#OPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
+POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
 OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
@@ -78,381 +78,107 @@ def get_form_priority(ftype: str, category: str) -> int:
 
 # ── Logging helper
 def log_extraction(src: str, method: str, text: str):
-    snippet = text[:1000].replace('\n',' ') + ('...' if len(text)>1000 else '')
+    snippet = text[:2000].replace('\n',' ') + ('...' if len(text)>2000 else '')
     logger.info(f"[{method}] {os.path.basename(src)} → '{snippet}'")
-import io
-import fitz
-from PIL import Image
-
-def pdf_page_to_image(path: str, page_index: int, dpi: int = 300) -> Image.Image:
-    import io
-    doc = fitz.open(path)
-    page = doc.load_page(page_index)
-
-    # Scale for DPI
-    zoom = dpi / 72
-    mat = fitz.Matrix(zoom, zoom)
-
-    # Render with high quality (alpha=False = no transparency)
-    pix = page.get_pixmap(matrix=mat, alpha=False)
-
-    # Extra: convert to grayscale for OCR
-    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
-
-    # Optional: Binarize (thresholding) to boost OCR accuracy
-    img = img.point(lambda x: 0 if x < 200 else 255, "1")
-
-    doc.close()
-    return img
-#to define debig_snippet
-def debug_snippet(label: str, text: str, max_len: int = 200):
-    """
-    Print a short snippet of extracted text for debugging.
-    Avoids dumping huge pages to stderr.
-    """
-    snippet = (text[:max_len].replace("\n", " ") + ("..." if len(text) > max_len else ""))
-    print(f"[{label}] {snippet}", file=sys.stderr)
-
 
 # ── Tiered text extraction for PDF pages
-critical_markers = [
-    "w-2", "employer", "wages", "medicare wages and tips",
-    "1099-int", "1099-div", "mortgage", "dividends",
-    "interest income", "social security"
-]
-
 def extract_text(path: str, page_index: int) -> str:
-    # 1. PDFMiner first
-    text_pdfminer = ""
+    text = ""
+    # OCR fallback
+    if len(text.strip()) < OCR_MIN_CHARS:
+        try:
+            opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
+            img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
+            t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
+            print(f"[OCR full]\n{t3}", file=sys.stderr)
+            if len(t3.strip()) > len(text): text = t3
+        except Exception:
+            traceback.print_exc()
+    # PDFMiner
     try:
-        text_pdfminer = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        debug_snippet("PDFMiner", text_pdfminer)
+        t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
+        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
+        if len(t1.strip()) > len(text): text = t1
     except Exception:
         traceback.print_exc()
-
-    # 2. PyPDF2 next
-    text_pypdf2 = ""
-    try:
-        reader = PdfReader(path)
-        text_pypdf2 = reader.pages[page_index].extract_text() or ""
-        debug_snippet("PyPDF2", text_pypdf2)
-    except Exception:
-        traceback.print_exc()
-
-    # 3. Combine both
-    combined_text = text_pdfminer if len(text_pdfminer) >= len(text_pypdf2) else text_pypdf2
-
-    # 4. Check critical markers
-    lower_texts = (text_pdfminer + " " + text_pypdf2).lower()
-    if any(marker in lower_texts for marker in critical_markers):
-        return combined_text
-
-    # 5. If no markers found → OCR fallback
-    try:
-        for dpi in (200, 300):
-            img = pdf_page_to_image(path, page_index, dpi=dpi)
-            gray = img.convert("L")
-            bw = gray.point(lambda x: 0 if x < 180 else 255, '1')
-            t_ocr = pytesseract.image_to_string(
-                bw, lang="eng", config="--oem 3 --psm 6"
-            ) or ""
-            debug_snippet(f"OCR dpi={dpi}", t_ocr)
-
-            if any(marker in t_ocr.lower() for marker in critical_markers):
-                return t_ocr
-            if len(t_ocr.strip()) > len(combined_text.strip()):
-                combined_text = t_ocr
-    except Exception:
-        traceback.print_exc()
-
-    return combined_text
-
+    # PyPDF2 fallback
+    if len(text.strip()) < OCR_MIN_CHARS:
+        try:
+            reader = PdfReader(path)
+            t2 = reader.pages[page_index].extract_text() or ""
+            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
+            if len(t2.strip()) > len(text): text = t2
+        except Exception:
+            traceback.print_exc()
+   
+    return text
 
 # ── Full‐PDF text extractor
-
+def extract_text_from_pdf(file_path: str) -> str:
+    text = ""
+    try:
+        with open(file_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            for i, page in enumerate(reader.pages):
+                pt = page.extract_text() or ""
+                if pt.strip():
+                    print_phrase_context(pt)
+                    text += f"\n--- Page {i+1} ---\n" + pt
+    except Exception as e:
+        logger.error(f"Error in full PDF extract {file_path}: {e}")
+        text = f"Error extracting full PDF: {e}"
+    return text
 
 # ── OCR for images
-
-def is_unused_page(text: str) -> bool:
-    """
-    Detect pages that are just year-end messages, instructions,
-    or generic investment details (not real 1099 forms).
-    """
-    lower = text.lower()
-
-    # ✅ Match "<YEAR> investment details" (year can vary)
-    investment_details = re.search(r"\b\d{4}\s+investment details", lower)
-
-    return (
-        "understanding your form 1099" in lower
-        or "year-end messages" in lower
-        or "important: if your etrade account transitioned" in lower
-        or "please visit etrade.com/tax" in lower
-        or "tax forms for robinhood markets" in lower      # ✅ your case
-        or "robinhood retirements accounts" in lower       # ✅ your case
-        or "new for 2023 tax year" in lower                # ✅ explicit year
-        or "new for 2024 tax year" in lower
-        or "new for 2025 tax year" in lower
-        or "new for 2025 tax year" in lower
-        or "that are necessary for tax" in lower
-        or "please note there may be a slight timing" in lower
-        or "account statement will not have included" in lower
-       
-        or "tax lot closed on a first in" in lower
-        or "your form 1099 composite may include the following internal revenue service " in lower
-        or "schwab provides your form 1099 tax information as early" in lower
-        or "if you have any questions or need additional information about your" in lower
-        or "schwab is not providing cost basis" in lower
-        or "the amount displayed in this column has been adjusted for option premiums" in lower
-        or "you may select a different cost basis method for your brokerage" in lower
-        or "to view and change your default cost basis" in lower
-        or "this information is not intended to be a substitue for specific individualized" in lower
-        or "shares will be gifted based on your default cost basis" in lower
-        or "if you sell shares at a loss and buy additional shares" in lower
-        or "we are required to send you a corrected from with the revisions clearly marked" in lower
-        or "referenced to indicate individual items that make up the totals appearing" in lower
-        or "issuers of the securities in your account reallocated certain income distribution" in lower
-        or "the amount shown may be dividends a corporation paid directly" in lower
-        or "if this form includes amounts belonging to another person" in lower
-        or "spouse is not required to file a nominee return to show" in lower
-        or "character when passed through or distributed to its direct or in" in lower
-        or "brokers and barter exchanges must report proceeds from" in lower
-        or "first in first out basis" in lower
-        or "See the instructions for your Schedule D" in lower
-        or "other property received in a reportable change in control or capital" in lower
-        or "enclosed is your" in lower and "consolidated tax statement" in lower  # ✅ catch intro line
-        or "filing your taxes" in lower and "turbotax" in lower                   # ✅ catch import instructions
-        or ("details of" in lower and "investment activity" in lower)
-        or bool(investment_details)   # ✅ catches "2023 INVESTMENT DETAILS"
-    )
-
+def extract_text_from_image(file_path: str) -> str:
+    text = ""
+    try:
+        img = Image.open(file_path)
+        if img.mode!='RGB': img = img.convert('RGB')
+        et = pytesseract.image_to_string(img)
+        if et.strip():
+            print_phrase_context(et)
+            text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
+        else: text = f"No text in image: {os.path.basename(file_path)}"
+    except Exception as e:
+        logger.error(f"Error OCR image {file_path}: {e}")
+        text = f"Error OCR image: {e}"
+    return text
 def extract_account_number(text: str) -> str:
     """
-    Extract and normalize the account number or ORIGINAL number from page text.
-    - Handles 'Account Number: ####' format
-    - Handles 'ORIGINAL: ####' format
-    Returns None if nothing found.
+    Extract and normalize the account number from page text.
+    Removes spaces and ignores trailing page info or other words.
+    Returns None if no account number found.
     """
-    #Account Number
-    #2360-9180
-    match = re.search(r"Account\s*Number[:\s]*([\d\-]+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).replace(" ", "").strip()
-    # First try to capture "Account Number:"
     match = re.search(r"Account Number:\s*([\d\s]+)", text, re.IGNORECASE)
     if match:
+        # Normalize: remove spaces so 488 885793 204 == 488885793204
         return match.group(1).replace(" ", "").strip()
-
-    # If not found, try to capture "ORIGINAL:"
-    match = re.search(r"ORIGINAL:\s*([\d\s]+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).replace(" ", "").strip()
-   
-    #Account 697296887
-    match = re.search(r"Account\s+(\d+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-   
-
     return None
-
-
-# consolidated-1099 forms bookmark
-def has_nonzero_misc(text: str) -> bool:
-    patterns = [
-        r"1\.RENTS\s*\$([0-9,]+\.\d{2})",
-        r"2\.ROYALTIES\s*\$([0-9,]+\.\d{2})",
-        r"3\.OTHER INCOME\s*\$([0-9,]+\.\d{2})",
-        r"4\.FEDERAL INCOME TAX WITHHELD\s*\$([0-9,]+\.\d{2})",
-        r"8\.SUBSTITUTE PAYMENTS.*\$\s*([0-9,]+\.\d{2})",
-    ]
-    return _check_nonzero(patterns, text)
-def has_nonzero_oid(text: str) -> bool:
-    patterns = [
-        r"1\.ORIGINAL ISSUE DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
-        r"2\.OTHER PERIODIC INTEREST.*\$\s*([0-9,]+\.\d{2})",
-        r"4\.FEDERAL INCOME TAX WITHHELD.*\$\s*([0-9,]+\.\d{2})",
-        r"5\.MARKET DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
-        r"6\.ACQUISITION PREMIUM.*\$\s*([0-9,]+\.\d{2})",
-        r"8\.OID ON.*\$\s*([0-9,]+\.\d{2})",
-        r"9\.INVESTMENT EXPENSES.*\$\s*([0-9,]+\.\d{2})",
-        r"10\.BOND PREMIUM.*\$\s*([0-9,]+\.\d{2})",
-        r"11\.TAX-EXEMPT OID.*\$\s*([0-9,]+\.\d{2})",
-    ]
-    return _check_nonzero(patterns, text)
-def has_nonzero_b(text: str) -> bool:
-    """
-    Detects if a 1099-B form is present.
-    Returns True if there are nonzero dollar values OR if structural
-    summary keywords (SHORT-TERM, LONG-TERM, UNKNOWN TERM with FORM 8949)
-    are present.
-    """
-    # 1. Numeric value checks
-    patterns = [
-        r"1d\.PROCEEDS.*\$\s*([0-9,]+\.\d{2})",
-        r"COVERED SECURITIES.*\$\s*([0-9,]+\.\d{2})",
-        r"NONCOVERED SECURITIES.*\$\s*([0-9,]+\.\d{2})",
-        r"1e\.COST OR OTHER BASIS.*\$\s*([0-9,]+\.\d{2})",
-        r"1f\.ACCRUED MARKET DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
-        r"1g\.WASH SALE LOSS DISALLOWED.*\$\s*([0-9,]+\.\d{2})",
-        r"4\.FEDERAL INCOME TAX WITHHELD.*\$\s*([0-9,]+\.\d{2})",
-    ]
-    if _check_nonzero(patterns, text):
-        return True
-
-    lower = text.lower()
-
-    # 2. Structural fallback (existing)
-    if (
-        "short-term gains or (losses)" in lower
-        or "long-term gains or (losses)" in lower
-        or "unknown term" in lower
-    ) and "form 8949" in lower:
-        return True
-
-    # 3. ✅ NEW: catch summary table headers even if all values are 0
-    if any(kw in lower for kw in [
-        "short a", "short b", "short c",
-        "long d", "long e", "long f",
-        "total short-term", "total long-term", "total undetermined"
-    ]):
-        return True
-
-    return False
-
-
-def has_nonzero_div(text: str) -> bool:
-    """
-    Detects if a 1099-DIV form has any nonzero amounts.
-    Works for both UPPERCASE and lowercase extractions, with or without spaces.
-    """
-    patterns = [
-        r"1a\s*\.?\s*.*ordinary dividends.*?\$\s*([0-9,]+\.\d{2})",
-        r"1b\s*\.?\s*.*qualified dividends.*?\$\s*([0-9,]+\.\d{2})",
-        r"2a\s*\.?\s*.*capital gain.*?\$\s*([0-9,]+\.\d{2})",
-        r"2b\s*\.?\s*.*1250 gain.*?\$\s*([0-9,]+\.\d{2})",
-        r"2c\s*\.?\s*.*1202 gain.*?\$\s*([0-9,]+\.\d{2})",
-        r"2d\s*\.?\s*.*collectibles.*?\$\s*([0-9,]+\.\d{2})",
-        r"2e\s*\.?\s*.*897 ordinary dividends.*?\$\s*([0-9,]+\.\d{2})",
-        r"2f\s*\.?\s*.*897 capital.*?\$\s*([0-9,]+\.\d{2})",
-        r"3\s*\.?\s*.*non[- ]?dividend.*?\$\s*([0-9,]+\.\d{2})",
-        r"4\s*\.?\s*.*federal income tax withheld.*?\$\s*([0-9,]+\.\d{2})",
-        r"5\s*\.?\s*.*199a dividends.*?\$\s*([0-9,]+\.\d{2})",
-        r"6\s*\.?\s*.*investment expenses.*?\$\s*([0-9,]+\.\d{2})",
-        r"7\s*\.?\s*.*foreign tax paid.*?\$\s*([0-9,]+\.\d{2})",
-        r"9\s*\.?\s*.*cash liquidation.*?\$\s*([0-9,]+\.\d{2})",
-        r"10\s*\.?\s*.*non[- ]?cash liquidation.*?\$\s*([0-9,]+\.\d{2})",
-        r"12\s*\.?\s*.*exempt[- ]?interest dividends.*?\$\s*([0-9,]+\.\d{2})",
-        r"13\s*\.?\s*.*specified private activity.*?\$\s*([0-9,]+\.\d{2})",
-    ]
-
-    return _check_nonzero(patterns, text)
-
-def has_nonzero_int(text: str) -> bool:
-    patterns = [
-        r"1[\.\-,)]?\s*INTEREST\s+INCOME.*\$\s*([0-9,]+\.\d{2})",
-        r"2[\.\-,)]?\s*EARLY\s+WITHDRAWAL\s+PENALTY.*\$\s*([0-9,]+\.\d{2})",
-        r"3[\.\-,)]?\s*INTEREST\s+ON\s+U\.?S\.?\s+SAVINGS.*\$\s*([0-9,]+\.\d{2})",
-        r"4[\.\-,)]?\s*FEDERAL\s+INCOME\s+TAX\s+WITHHELD.*\$\s*([0-9,]+\.\d{2})",
-        r"5[\.\-,)]?\s*INVESTMENT\s+EXPENSES.*\$\s*([0-9,]+\.\d{2})",
-        r"6[\.\-,)]?\s*FOREIGN\s+TAX\s+PAID.*\$\s*([0-9,]+\.\d{2})",
-        r"8[\.\-,)]?\s*TAX[-\s]*EXEMPT\s+INTEREST.*\$\s*([0-9,]+\.\d{2})",
-        r"9[\.\-,)]?\s*SPECIFIED\s+PRIVATE\s+ACTIVITY.*\$\s*([0-9,]+\.\d{2})",
-        r"10[\.\-,)]?\s*MARKET\s+DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
-        r"(?:11|41|iS)[\.\-,)]?\s*BOND\s+PREMIUM.*\$\s*([0-9,]+\.\d{2})",   # OCR confusion: 11 ↔ 41 ↔ iS
-        r"12[\.\-,)]?\s*BOND\s+PREMIUM\s+ON\s+TREASURY.*\$\s*([0-9,]+\.\d{2})",
-        r"13[\.\-,)]?\s*BOND\s+PREMIUM\s+ON\s+TAX[-\s]*EXEMPT.*\$\s*([0-9,]+\.\d{2})",
-    ]
-
-    return _check_nonzero(patterns, text)
-def _check_nonzero(patterns, text: str) -> bool:
-    for pat in patterns:
-        m = re.search(pat, text, flags=re.IGNORECASE | re.DOTALL)
-        if m:
-            try:
-                val = float(m.group(1).replace(",", "").replace("$", "").strip())
-                if val != 0.0:
-                    return True
-            except:
-                continue
-    return False
-# --- Post-processing cleanup for bookmarks ---
-def filter_bookmarks(bookmarks: list[str]) -> list[str]:
-    """
-    If both '1099-B' and 'ST-A/B/C OR LT-D/E/F' appear,
-    keep only 'ST-A/B/C OR LT-D/E/F'.
-    """
-    if "1099-B" in bookmarks and any(
-        b for b in bookmarks if "ST-" in b or "LT-" in b
-    ):
-        return [b for b in bookmarks if b != "1099-B"]
-    return bookmarks
 def classify_text_multi(text: str) -> list[str]:
     """Return a list of form names detected in the page text."""
     lower = text.lower()
     matches = []
 
-    has_int = ("1099-int" in lower or "form 1099-int" in lower) and has_nonzero_int(text)
-    has_div = ("total ordinary dividends" in lower or "qualified dividends" in lower) and has_nonzero_div(text)
-
-    # Other forms
-    if "1099-b" in lower or "form 1099-b" in lower or has_nonzero_b(text):                                        
-        if has_nonzero_b(text):
-            matches.append("1099-B")
-
+    if "1099-int" in lower or "form 1099-int" in lower:
+        matches.append("1099-INT")
+    if "1099-div" in lower or "form 1099-div" in lower:
+        matches.append("1099-DIV")
+    if "1099-b" in lower or "form 1099-b" in lower:
+        matches.append("1099-B")
     if "1099-misc" in lower or "form 1099-misc" in lower:
-        if has_nonzero_misc(text):
-            matches.append("1099-MISC")
-
+        matches.append("1099-MISC")
     if "1099-oid" in lower or "form 1099-oid" in lower:
-        if has_nonzero_oid(text):
-            matches.append("1099-OID")
-
-    # ✅ NEW: Form 8949 Box conditions (ST/LT with A–F)
-    box_map = {
-        "box a checked": "ST-A",
-        "box b checked": "ST-B",
-        "box c checked": "ST-C",
-        "box d checked": "LT-D",
-        "box e checked": "LT-E",
-        "box f checked": "LT-F",
-    }
-   
-    for key, label in box_map.items():
-        if key in lower:
-            matches.append(label)
-
-    # Combined condition for INT + DIV
-    if has_int and has_div:
-        cond1 = ("total federal income tax withheld" in lower
-                 and "total interest income 1099-int box 1" in lower)
-        cond2 = ("total qualified dividends" in lower
-                 and "interest income" in lower)
-
-        if cond1 or cond2:
-            matches.append("1099-INT & DIV Description")
-        elif cond1:
-            matches.append("1099-DIV Description")
-        elif cond2:
-            matches.append("1099-INT Description")
-        else:
-            matches.append("1099-INT")
-            matches.append("1099-DIV")
-    else:
-        if has_int:
-            matches.append("1099-INT")
-        if has_div:
-            matches.append("1099-DIV")
+        matches.append("1099-OID")
 
     return matches
+
 
 # --- Classification Helper
 def classify_text(text: str) -> Tuple[str, str]:
     normalized = re.sub(r'\s+', '', text.lower())
     if "#bwnjgwm" in normalized:
         return "Others", "Unused"
-    if is_unused_page(text):
-        return "Unknown", "Unused"
     t = text.lower()
     lower = text.lower()
    
@@ -748,21 +474,7 @@ def parse_w2(text: str) -> Dict[str, str]:
     lines: List[str] = text.splitlines()
     emp_name = emp_addr = "N/A"
     bookmark = None
-    full_lower = text.lower()
-
-    # 🔹 1) FCA US LLC override
-    if any(v in full_lower for v in ("fca us llc", "fca us, llc", "fcaus llc")):
-        emp_name = "FCA US LLC"
-        return {
-            'ssn': ssn,
-            'ein': ein,
-            'employer_name': emp_name,
-            'employer_address': emp_addr,
-            'employee_name': 'N/A',
-            'employee_address': 'N/A',
-            'bookmark': emp_name
-        }
-        
+   
     marker = (
         "c Employer's name, address, and ZIP code "
         "8 Allocated tips 3 Social security wages 4 Social security tax withheld"
@@ -779,7 +491,6 @@ def parse_w2(text: str) -> Dict[str, str]:
             if j < len(lines):
                 raw = lines[j].strip()
                 # only proceed if this line really starts with a letter
-                
                 if re.match(r'^[A-Za-z]', raw):
                     # strip off the numeric tail
                     m = re.match(r'^(.+?)\s+\d', raw)
@@ -796,8 +507,7 @@ def parse_w2(text: str) -> Dict[str, str]:
                     }
             break  # no valid next line, so stop looking
     for i, line in enumerate(lines):
-            # Match anything (numbers/letters/mixed) followed by " - PAYROL"
-        if re.search(r".+\s*-\s*PAYROL", line, re.IGNORECASE):
+            if "0000000845 - PAYROL" in line:
                 j = i + 1
                 while j < len(lines) and not lines[j].strip():
                     j += 1
@@ -965,35 +675,25 @@ def parse_w2(text: str) -> Dict[str, str]:
         }
        #-----------------------------------------
     # 2) Standard W-2 parsing
-    # 2) Standard W-2 parsing
     for i, line in enumerate(lines):
         if "employer" in line.lower() and "name" in line.lower():
-        # next non-blank = name
+            # next non-blank = name
             j = i + 1
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
-                raw = lines[j].strip()
-
-            # 🚫 Skip if OCR picked up junk lines
-                if any(skip in raw.lower() for skip in ("omb", "form w-2", "department of the treasury", "irs")):
-                    continue
-                if re.match(r'^\d{3,}$', raw):  # numeric-only junk
-                    continue
-
-                parts = [p.strip() for p in re.split(r"[|]", raw)]
+                parts = [p.strip() for p in re.split(r"[|]", lines[j])]
                 for p in parts:
                     if p and re.search(r"[A-Za-z]", p) and not re.match(r"^\d", p):
                         emp_name = normalize_entity_name(p)
                         break
                 j += 1
-        # next non-blank = address
+            # next non-blank = address
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
                 emp_addr = lines[j].strip()
             break
-
 
     # dedupe if found
     if emp_name != "N/A":
@@ -1195,11 +895,7 @@ def extract_consolidated_issuer(text: str) -> str | None:
     # Explicit ask: Morgan Stanley Capital Management, LLC
     if re.search(r"morgan\s+stanley\s+capital\s+management,\s*llc", lower):
         return "Morgan Stanley Capital Management, LLC"
-    # Explicit: Robinhood Markets Inc
-    if re.search(r"robinhood\s+markets?\s+inc", lower):
-        return "Robinhood Markets Inc"
-    if re.search(r"robinhood\s+markets?\s+inc", lower):
-        return "Charles Schwab"
+
     # Heuristic fallback: if the page looks like a consolidated/composite cover,
     # grab the first plausible line that looks like an issuer/legal name.
     if "consolidated 1099" in lower or "composite 1099" in lower:
@@ -1401,30 +1097,6 @@ def print_pdf_bookmarks(path: str):
 
 # ── Merge + bookmarks + multi-method extraction
 nek = None
-def classify_div_int(text: str) -> str | None:
-    """
-    Classify a page as 1099-DIV or 1099-INT if it matches the required
-    header lines. Returns "1099-DIV", "1099-INT", or None.
-    """
-    lower = text.lower()
-
-    div_match = (
-        "1099-div" in lower
-        and "dividends & distributions" in lower
-        and "ordinary dividends" in lower
-        and "description cusippay" in lower
-    )
-    int_match = (
-        "1099-int" in lower
-        and "interest income" in lower
-        and "description cusippay" in lower
-    )
-
-    if div_match:
-        return "1099-DIV"
-    elif int_match:
-        return "1099-INT"
-    return None
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):
     # Prevent storing merged file inside input_dir
@@ -1432,7 +1104,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     abs_output = os.path.abspath(output_pdf)
     if abs_output.startswith(abs_input + os.sep):
         abs_output = os.path.join(os.path.dirname(abs_input), os.path.basename(abs_output))
-        logger.warning(f"Moved output outside: {abs_output}")
+        logger.warning(f"Moved output outside: {abs_out}")
     all_files = sorted(
        f for f in os.listdir(abs_input)
        if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
@@ -1485,17 +1157,49 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     extracts['PDFMiner'] = ""
                     print(f"[ERROR] PDFMiner failed: {e}", file=sys.stderr)
 
-                
+                print("→ PyPDF2:", file=sys.stderr)
+                try:
+                    extracts['PyPDF2'] = PdfReader(path).pages[i].extract_text() or ""
+                    print(extracts['PyPDF2'], file=sys.stderr)
+                except Exception as e:
+                    extracts['PyPDF2'] = ""
+                    print(f"[ERROR] PyPDF2 failed: {e}", file=sys.stderr)
 
                 print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    img = pdf_page_to_image(path, i, dpi=150)  # ✅ use your PyMuPDF helper
+                    img = convert_from_path(path, first_page=i+1, last_page=i+1, poppler_path=POPPLER_PATH or None)[0]
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
                     print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:
                     extracts['Tesseract'] = ""
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
 
+                print("→ FullPDF extract_text_from_pdf():", file=sys.stderr)
+                try:
+                    extracts['FullPDF'] = extract_text_from_pdf(path)
+                    print(extracts['FullPDF'], file=sys.stderr)
+                except Exception as e:
+                    extracts['FullPDF'] = ""
+                    print(f"[ERROR] FullPDF failed: {e}", file=sys.stderr)
+
+                print("→ pdfplumber:", file=sys.stderr)
+                try:
+                    with pdfplumber.open(path) as pdf:
+                        extracts['pdfplumber'] = pdf.pages[i].extract_text() or ""
+                        print(extracts['pdfplumber'], file=sys.stderr)
+                except Exception as e:
+                    extracts['pdfplumber'] = ""
+                    print(f"[ERROR] pdfplumber failed: {e}", file=sys.stderr)
+
+                print("→ PyMuPDF (fitz):", file=sys.stderr)
+                try:
+                    doc = fitz.open(path)
+                    extracts['PyMuPDF'] = doc.load_page(i).get_text()
+                    doc.close()
+                    print(extracts['PyMuPDF'], file=sys.stderr)
+                except Exception as e:
+                    extracts['PyMuPDF'] = ""
+                    print(f"[ERROR] PyMuPDF failed: {e}", file=sys.stderr)
 
                 print("=" * 400, file=sys.stderr)
              
@@ -1534,21 +1238,21 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     # … after you’ve extracted text …
                    # NEW: {acct: "Issuer Name"}
 
-                #tiered = extract_text(path, i)
-                acct_num = extract_account_number(text)
+                tiered = extract_text(path, i)
+                acct_num = extract_account_number(tiered)
                 if acct_num:
                     account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
                 # NEW: capture issuer name for this account if present
-                    issuer = extract_consolidated_issuer(text)
+                    issuer = extract_consolidated_issuer(tiered)
                     if issuer:
                         account_names.setdefault(acct_num, issuer)
-                cat, ft = classify_text(text)
+                cat, ft = classify_text(tiered)
                
                 # NEW: log every classification
                 print(
                     f"[Classification] {os.path.basename(path)} p{i+1} → "
                     f"Category='{cat}', Form='{ft}', "
-                    f"snippet='{text[:150].strip().replace(chr(80),' ')}…'",
+                    f"snippet='{tiered[:150].strip().replace(chr(80),' ')}…'",
                     file=sys.stderr
                 )
 
@@ -1579,9 +1283,6 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     # ---- Consolidated-1099 synthesis (insert this BEFORE income.sort(...)) ----
     consolidated_payload = {}        # key -> list of real page entries
     consolidated_pages = set()       # pages already placed under Consolidated-1099
-    # Track pages we already decided are "Unused" so we don't touch them again
-    unused_pages: set[tuple[str, int]] = set()
-
 
     for acct, pages in account_pages.items():
         if len(pages) <= 1:
@@ -1602,21 +1303,16 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     page_num = 0
     stop_after_na = False
     import mimetypes
-    seen_pages = set()
-    def append_and_bookmark(entry, parent, title, with_bookmark=True):
-        nonlocal page_num, seen_pages
-        sig = (entry[0], entry[1])
-        if sig in seen_pages:
-            print(f"[DUPLICATE] Skipping {os.path.basename(entry[0])} page {entry[1]+1}", file=sys.stderr)
-            return
-        seen_pages.add(sig)
+    def append_and_bookmark(entry, parent, title):
+        nonlocal page_num
         p, idx, _ = entry
         mime_type, _ = mimetypes.guess_type(p)
 
+        # Skip non-PDF files
         if mime_type != 'application/pdf':
             print(f"⚠️  Skipping non-PDF file: {p}", file=sys.stderr)
             return
-
+       
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             w = PdfWriter()
             try:
@@ -1627,25 +1323,21 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             except Exception:
                 print(f"Temp write failed: {p} p{idx+1}", file=sys.stderr)
                 traceback.print_exc()
+                print(f"⚠️  Temp write failed for {p!r} (page {idx+1}); skipping.", file=sys.stderr)
+                traceback.print_exc()
                 return
             tmp_path = tmp.name
-        with open(tmp_path, 'rb') as fh:
+        with open(tmp_path,'rb') as fh:
             merger.append(fileobj=fh)
         os.unlink(tmp_path)
-
-    # ✅ Only add bookmark if requested
-        if with_bookmark and title:
-            merger.add_outline_item(title, page_num, parent=parent)
-
+        merger.add_outline_item(title, page_num, parent=parent)
         page_num += 1
+   
+   
 
-
-   
-   
-   
     # ── Bookmarks
    
-    if income:
+    if income and not stop_after_na:
         root = merger.add_outline_item('Income', page_num)
         groups = group_by_type(income)
         for form, grp in sorted(groups.items(), key=lambda kv: get_form_priority(kv[0], 'Income')):
@@ -1657,86 +1349,41 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             if stop_after_na:
                 break
             if form == 'Consolidated-1099':
+    # Create the top-level Consolidated-1099 node under Income (once)
                 cons_root = merger.add_outline_item('Consolidated-1099', page_num, parent=root)
 
                 for entry in filtered_grp:
                     key, _, _ = entry
                     acct = key.split("::", 1)[1]
 
+        # 👉 Use issuer if we have it, and alias it
                     issuer = account_names.get(acct)
-                    issuer = alias_issuer(issuer) if issuer else None
-                    forms_label = issuer or f"Account {acct}"
+                    if issuer:
+                        issuer = alias_issuer(issuer)
+
+                    forms_label = f"{issuer} (Account: {acct})" if issuer else f"forms (Account: {acct})"
                     forms_node = merger.add_outline_item(forms_label, page_num, parent=cons_root)
 
-                    real_entries = consolidated_payload.get(key, [])
-
-        # (optional context labels — does NOT skip appends)
-             
-
-        # ALWAYS append the real pages
-                    for real_entry in real_entries:
+        # --- Consolidated-1099 Pages ---
+                    # --- Consolidated-1099 Pages ---
+                    for real_entry in consolidated_payload.get(key, []):
                         page_text = extract_text(real_entry[0], real_entry[1])
-                        if is_unused_page(page_text):
-                            print(f"[DROP?] {os.path.basename(real_entry[0])} page {real_entry[1]+1} "
-                                    f"marked as UNUSED", file=sys.stderr)
-                            others.append((real_entry[0], real_entry[1], "Unused"))
-                            #append_and_bookmark(real_entry, forms_node, "Unused")
-                            continue
 
-    # 1️⃣ First, check strong classifier
-                        form_type = classify_div_int(page_text)
+            # Detect all matching forms on this page
+                        form_matches = classify_text_multi(page_text)
 
-                        if form_type == "1099-DIV":
-                            append_and_bookmark(real_entry, forms_node, "1099-DIV Description")
+                        # Append the page once using the first detected form (or fallback if none)
+                        if form_matches:
+                            first_form = form_matches[0]
+                            append_and_bookmark(real_entry, forms_node, first_form)
 
-        # 2️⃣ Also check for other forms on same page
-                            extra_forms = [ft for ft in (classify_text_multi(page_text) or [])
-                                           if ft != "1099-DIV"]
-                            for ft in extra_forms:
+    # Add extra bookmarks for the same page (no duplicate appends)
+                            for ft in form_matches[1:]:
                                 merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-
-                        elif form_type == "1099-INT":
-                            if has_nonzero_int(page_text):
-                                append_and_bookmark(real_entry, forms_node, "1099-INT Description")
-                            else:
-        # Still append the page, but give it a neutral label
-                                append_and_bookmark(real_entry, forms_node, "1099-INT (all zero)")
-                                print(f"[NOTE] {os.path.basename(real_entry[0])} page {real_entry[1]+1} "
-                                  f"→ 1099-INT detected but all zero; kept page with neutral bookmark", file=sys.stderr)
-
-                        # 2️⃣ Also check for other forms on same page
-                            extra_forms = [ft for ft in (classify_text_multi(page_text) or [])
-                                           if ft != "1099-INT"]
-                            for ft in extra_forms:
-                                merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-
                         else:
-        # 3️⃣ Fallback: pure multi-form logic
-                            form_matches = classify_text_multi(page_text)
+                            append_and_bookmark(real_entry, forms_node, f"Account {acct}")
 
-                            title = None
-                            extra_forms = []
-
-                            if form_matches:
-    # Special rule: drop 1099-INT if all zero
-                                if "1099-INT" in form_matches and not has_nonzero_int(page_text):
-                                    form_matches = [f for f in form_matches if f != "1099-INT"]
-
-                                if form_matches:
-                                    title = form_matches[0]
-                                    extra_forms = form_matches[1:]
-
-# Append once, with or without bookmark
-                            if title:
-                                append_and_bookmark(real_entry, forms_node, title)
-                                for ft in extra_forms:
-                                    merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-                            else:
-    # Only zero INT → keep page, no bookmark
-                                append_and_bookmark(real_entry, forms_node, "", with_bookmark=False)
-
-                continue
-  # done with this form; go to next
+                continue  # done with this form; go to next
             #Normal Forms
             node = merger.add_outline_item(form, page_num, parent=root)
             for j, entry in enumerate(filtered_grp, 1):
@@ -1763,15 +1410,18 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # NEW: strip ", N.A" and stop after this bookmark
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")
-                print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
-                   
+                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                    append_and_bookmark(entry, node, lbl)
+                    stop_after_na = True
+                    break
+
                 # normal case
                 print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
             if stop_after_na:
                 break
 
-    if expenses:
+    if expenses and not stop_after_na:
         root = merger.add_outline_item('Expenses', page_num)
         for form, grp in group_by_type(expenses).items():
             if stop_after_na:
@@ -1788,8 +1438,11 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # NEW: strip ", N.A" and stop
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")
-                print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
-                   
+                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                    append_and_bookmark(entry, node, lbl)
+                    stop_after_na = True
+                    break
+
                 # normal case
                 print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
@@ -1814,11 +1467,6 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
 
             append_and_bookmark(entry, node, lbl)
 
-    input_count = sum(
-    len(PdfReader(os.path.join(input_dir, f)).pages)
-    for f in files if f.lower().endswith(".pdf")
-    )
-    print(f"[SUMMARY] Input pages={input_count}, Output pages={page_num}", file=sys.stderr)
 
     # Write merged output
     os.makedirs(os.path.dirname(abs_output), exist_ok=True)

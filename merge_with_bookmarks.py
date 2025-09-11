@@ -144,41 +144,286 @@ def extract_text_from_image(file_path: str) -> str:
         logger.error(f"Error OCR image {file_path}: {e}")
         text = f"Error OCR image: {e}"
     return text
+def is_unused_page(text: str) -> bool:
+    """
+    Detect pages that are just year-end messages, instructions,
+    or generic investment details (not real 1099 forms).
+    """
+    lower = text.lower()
+
+    # ✅ Match "<YEAR> investment details" (year can vary)
+    investment_details = re.search(r"\b\d{4}\s+investment details", lower)
+
+    return (
+        "understanding your form 1099" in lower
+        or "year-end messages" in lower
+        or "important: if your etrade account transitioned" in lower
+        or "please visit etrade.com/tax" in lower
+        or "tax forms for robinhood markets" in lower      # ✅ your case
+        or "robinhood retirements accounts" in lower       # ✅ your case
+        or "new for 2023 tax year" in lower                # ✅ explicit year
+        or "new for 2024 tax year" in lower
+        or "new for 2025 tax year" in lower
+        or "new for 2025 tax year" in lower
+        or "that are necessary for tax" in lower
+        or "please note there may be a slight timing" in lower
+        or "account statement will not have included" in lower
+       
+        or "tax lot closed on a first in" in lower
+        or "your form 1099 composite may include the following internal revenue service " in lower
+        or "schwab provides your form 1099 tax information as early" in lower
+        or "if you have any questions or need additional information about your" in lower
+        or "schwab is not providing cost basis" in lower
+        or "the amount displayed in this column has been adjusted for option premiums" in lower
+        or "you may select a different cost basis method for your brokerage" in lower
+        or "to view and change your default cost basis" in lower
+        or "this information is not intended to be a substitue for specific individualized" in lower
+        or "shares will be gifted based on your default cost basis" in lower
+        or "if you sell shares at a loss and buy additional shares" in lower
+        or "we are required to send you a corrected from with the revisions clearly marked" in lower
+        or "referenced to indicate individual items that make up the totals appearing" in lower
+        or "issuers of the securities in your account reallocated certain income distribution" in lower
+        or "the amount shown may be dividends a corporation paid directly" in lower
+        or "if this form includes amounts belonging to another person" in lower
+        or "spouse is not required to file a nominee return to show" in lower
+        or "character when passed through or distributed to its direct or in" in lower
+        or "brokers and barter exchanges must report proceeds from" in lower
+        or "first in first out basis" in lower
+        or "See the instructions for your Schedule D" in lower
+        or "other property received in a reportable change in control or capital" in lower
+        or "enclosed is your" in lower and "consolidated tax statement" in lower  # ✅ catch intro line
+        or "filing your taxes" in lower and "turbotax" in lower                   # ✅ catch import instructions
+        or ("details of" in lower and "investment activity" in lower)
+        or bool(investment_details)   # ✅ catches "2023 INVESTMENT DETAILS"
+    )
+
 def extract_account_number(text: str) -> str:
     """
-    Extract and normalize the account number from page text.
-    Removes spaces and ignores trailing page info or other words.
-    Returns None if no account number found.
+    Extract and normalize the account number or ORIGINAL number from page text.
+    - Handles 'Account Number: ####' format
+    - Handles 'ORIGINAL: ####' format
+    Returns None if nothing found.
     """
+    #Account Number
+    #2360-9180
+    match = re.search(r"Account\s*Number[:\s]*([\d\-]+)", text, re.IGNORECASE)
+    if match:
+        return match.group(1).replace(" ", "").strip()
+    # First try to capture "Account Number:"
     match = re.search(r"Account Number:\s*([\d\s]+)", text, re.IGNORECASE)
     if match:
-        # Normalize: remove spaces so 488 885793 204 == 488885793204
         return match.group(1).replace(" ", "").strip()
+
+    # If not found, try to capture "ORIGINAL:"
+    match = re.search(r"ORIGINAL:\s*([\d\s]+)", text, re.IGNORECASE)
+    if match:
+        return match.group(1).replace(" ", "").strip()
+   
+    #Account 697296887
+    match = re.search(r"Account\s+(\d+)", text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+   
+
     return None
+
+
+# consolidated-1099 forms bookmark
+def has_nonzero_misc(text: str) -> bool:
+    patterns = [
+        r"1\.RENTS\s*\$([0-9,]+\.\d{2})",
+        r"2\.ROYALTIES\s*\$([0-9,]+\.\d{2})",
+        r"3\.OTHER INCOME\s*\$([0-9,]+\.\d{2})",
+        r"4\.FEDERAL INCOME TAX WITHHELD\s*\$([0-9,]+\.\d{2})",
+        r"8\.SUBSTITUTE PAYMENTS.*\$\s*([0-9,]+\.\d{2})",
+    ]
+    return _check_nonzero(patterns, text)
+def has_nonzero_oid(text: str) -> bool:
+    patterns = [
+        r"1\.ORIGINAL ISSUE DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
+        r"2\.OTHER PERIODIC INTEREST.*\$\s*([0-9,]+\.\d{2})",
+        r"4\.FEDERAL INCOME TAX WITHHELD.*\$\s*([0-9,]+\.\d{2})",
+        r"5\.MARKET DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
+        r"6\.ACQUISITION PREMIUM.*\$\s*([0-9,]+\.\d{2})",
+        r"8\.OID ON.*\$\s*([0-9,]+\.\d{2})",
+        r"9\.INVESTMENT EXPENSES.*\$\s*([0-9,]+\.\d{2})",
+        r"10\.BOND PREMIUM.*\$\s*([0-9,]+\.\d{2})",
+        r"11\.TAX-EXEMPT OID.*\$\s*([0-9,]+\.\d{2})",
+    ]
+    return _check_nonzero(patterns, text)
+def has_nonzero_b(text: str) -> bool:
+    """
+    Detects if a 1099-B form is present.
+    Returns True if there are nonzero dollar values OR if structural
+    summary keywords (SHORT-TERM, LONG-TERM, UNKNOWN TERM with FORM 8949)
+    are present.
+    """
+    # 1. Numeric value checks
+    patterns = [
+        r"1d\.PROCEEDS.*\$\s*([0-9,]+\.\d{2})",
+        r"COVERED SECURITIES.*\$\s*([0-9,]+\.\d{2})",
+        r"NONCOVERED SECURITIES.*\$\s*([0-9,]+\.\d{2})",
+        r"1e\.COST OR OTHER BASIS.*\$\s*([0-9,]+\.\d{2})",
+        r"1f\.ACCRUED MARKET DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
+        r"1g\.WASH SALE LOSS DISALLOWED.*\$\s*([0-9,]+\.\d{2})",
+        r"4\.FEDERAL INCOME TAX WITHHELD.*\$\s*([0-9,]+\.\d{2})",
+    ]
+    if _check_nonzero(patterns, text):
+        return True
+
+    lower = text.lower()
+
+    # 2. Structural fallback (existing)
+    if (
+        "short-term gains or (losses)" in lower
+        or "long-term gains or (losses)" in lower
+        or "unknown term" in lower
+    ) and "form 8949" in lower:
+        return True
+
+    # 3. ✅ NEW: catch summary table headers even if all values are 0
+    if any(kw in lower for kw in [
+        "short a", "short b", "short c",
+        "long d", "long e", "long f",
+        "total short-term", "total long-term", "total undetermined"
+    ]):
+        return True
+
+    return False
+
+
+def has_nonzero_div(text: str) -> bool:
+    """
+    Detects if a 1099-DIV form has any nonzero amounts.
+    Works for both UPPERCASE and lowercase extractions, with or without spaces.
+    """
+    patterns = [
+        r"1a\s*\.?\s*.*ordinary dividends.*?\$\s*([0-9,]+\.\d{2})",
+        r"1b\s*\.?\s*.*qualified dividends.*?\$\s*([0-9,]+\.\d{2})",
+        r"2a\s*\.?\s*.*capital gain.*?\$\s*([0-9,]+\.\d{2})",
+        r"2b\s*\.?\s*.*1250 gain.*?\$\s*([0-9,]+\.\d{2})",
+        r"2c\s*\.?\s*.*1202 gain.*?\$\s*([0-9,]+\.\d{2})",
+        r"2d\s*\.?\s*.*collectibles.*?\$\s*([0-9,]+\.\d{2})",
+        r"2e\s*\.?\s*.*897 ordinary dividends.*?\$\s*([0-9,]+\.\d{2})",
+        r"2f\s*\.?\s*.*897 capital.*?\$\s*([0-9,]+\.\d{2})",
+        r"3\s*\.?\s*.*non[- ]?dividend.*?\$\s*([0-9,]+\.\d{2})",
+        r"4\s*\.?\s*.*federal income tax withheld.*?\$\s*([0-9,]+\.\d{2})",
+        r"5\s*\.?\s*.*199a dividends.*?\$\s*([0-9,]+\.\d{2})",
+        r"6\s*\.?\s*.*investment expenses.*?\$\s*([0-9,]+\.\d{2})",
+        r"7\s*\.?\s*.*foreign tax paid.*?\$\s*([0-9,]+\.\d{2})",
+        r"9\s*\.?\s*.*cash liquidation.*?\$\s*([0-9,]+\.\d{2})",
+        r"10\s*\.?\s*.*non[- ]?cash liquidation.*?\$\s*([0-9,]+\.\d{2})",
+        r"12\s*\.?\s*.*exempt[- ]?interest dividends.*?\$\s*([0-9,]+\.\d{2})",
+        r"13\s*\.?\s*.*specified private activity.*?\$\s*([0-9,]+\.\d{2})",
+    ]
+
+    return _check_nonzero(patterns, text)
+
+def has_nonzero_int(text: str) -> bool:
+    patterns = [
+        r"1[\.\-,)]?\s*INTEREST\s+INCOME.*\$\s*([0-9,]+\.\d{2})",
+        r"2[\.\-,)]?\s*EARLY\s+WITHDRAWAL\s+PENALTY.*\$\s*([0-9,]+\.\d{2})",
+        r"3[\.\-,)]?\s*INTEREST\s+ON\s+U\.?S\.?\s+SAVINGS.*\$\s*([0-9,]+\.\d{2})",
+        r"4[\.\-,)]?\s*FEDERAL\s+INCOME\s+TAX\s+WITHHELD.*\$\s*([0-9,]+\.\d{2})",
+        r"5[\.\-,)]?\s*INVESTMENT\s+EXPENSES.*\$\s*([0-9,]+\.\d{2})",
+        r"6[\.\-,)]?\s*FOREIGN\s+TAX\s+PAID.*\$\s*([0-9,]+\.\d{2})",
+        r"8[\.\-,)]?\s*TAX[-\s]*EXEMPT\s+INTEREST.*\$\s*([0-9,]+\.\d{2})",
+        r"9[\.\-,)]?\s*SPECIFIED\s+PRIVATE\s+ACTIVITY.*\$\s*([0-9,]+\.\d{2})",
+        r"10[\.\-,)]?\s*MARKET\s+DISCOUNT.*\$\s*([0-9,]+\.\d{2})",
+        r"(?:11|41|iS)[\.\-,)]?\s*BOND\s+PREMIUM.*\$\s*([0-9,]+\.\d{2})",   # OCR confusion: 11 ↔ 41 ↔ iS
+        r"12[\.\-,)]?\s*BOND\s+PREMIUM\s+ON\s+TREASURY.*\$\s*([0-9,]+\.\d{2})",
+        r"13[\.\-,)]?\s*BOND\s+PREMIUM\s+ON\s+TAX[-\s]*EXEMPT.*\$\s*([0-9,]+\.\d{2})",
+    ]
+
+    return _check_nonzero(patterns, text)
+def _check_nonzero(patterns, text: str) -> bool:
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            try:
+                val = float(m.group(1).replace(",", "").replace("$", "").strip())
+                if val != 0.0:
+                    return True
+            except:
+                continue
+    return False
+# --- Post-processing cleanup for bookmarks ---
+def filter_bookmarks(bookmarks: list[str]) -> list[str]:
+    """
+    If both '1099-B' and 'ST-A/B/C OR LT-D/E/F' appear,
+    keep only 'ST-A/B/C OR LT-D/E/F'.
+    """
+    if "1099-B" in bookmarks and any(
+        b for b in bookmarks if "ST-" in b or "LT-" in b
+    ):
+        return [b for b in bookmarks if b != "1099-B"]
+    return bookmarks
 def classify_text_multi(text: str) -> list[str]:
     """Return a list of form names detected in the page text."""
     lower = text.lower()
     matches = []
 
-    if "1099-int" in lower or "form 1099-int" in lower:
-        matches.append("1099-INT")
-    if "1099-div" in lower or "form 1099-div" in lower:
-        matches.append("1099-DIV")
-    if "1099-b" in lower or "form 1099-b" in lower:
-        matches.append("1099-B")
+    has_int = ("1099-int" in lower or "form 1099-int" in lower) and has_nonzero_int(text)
+    has_div = ("total ordinary dividends" in lower or "qualified dividends" in lower) and has_nonzero_div(text)
+
+    # Other forms
+    if "1099-b" in lower or "form 1099-b" in lower or has_nonzero_b(text):                                        
+        if has_nonzero_b(text):
+            matches.append("1099-B")
+
     if "1099-misc" in lower or "form 1099-misc" in lower:
-        matches.append("1099-MISC")
+        if has_nonzero_misc(text):
+            matches.append("1099-MISC")
+
     if "1099-oid" in lower or "form 1099-oid" in lower:
-        matches.append("1099-OID")
+        if has_nonzero_oid(text):
+            matches.append("1099-OID")
+
+    # ✅ NEW: Form 8949 Box conditions (ST/LT with A–F)
+    box_map = {
+        "box a checked": "ST-A",
+        "box b checked": "ST-B",
+        "box c checked": "ST-C",
+        "box d checked": "LT-D",
+        "box e checked": "LT-E",
+        "box f checked": "LT-F",
+    }
+   
+    for key, label in box_map.items():
+        if key in lower:
+            matches.append(label)
+
+    # Combined condition for INT + DIV
+    if has_int and has_div:
+        cond1 = ("total federal income tax withheld" in lower
+                 and "total interest income 1099-int box 1" in lower)
+        cond2 = ("total qualified dividends" in lower
+                 and "interest income" in lower)
+
+        if cond1 or cond2:
+            matches.append("1099-INT & DIV Description")
+        elif cond1:
+            matches.append("1099-DIV Description")
+        elif cond2:
+            matches.append("1099-INT Description")
+        else:
+            matches.append("1099-INT")
+            matches.append("1099-DIV")
+    else:
+        if has_int:
+            matches.append("1099-INT")
+        if has_div:
+            matches.append("1099-DIV")
 
     return matches
-
 
 # --- Classification Helper
 def classify_text(text: str) -> Tuple[str, str]:
     normalized = re.sub(r'\s+', '', text.lower())
     if "#bwnjgwm" in normalized:
         return "Others", "Unused"
+    if is_unused_page(text):
+        return "Unknown", "Unused"
     t = text.lower()
     lower = text.lower()
    
@@ -895,7 +1140,11 @@ def extract_consolidated_issuer(text: str) -> str | None:
     # Explicit ask: Morgan Stanley Capital Management, LLC
     if re.search(r"morgan\s+stanley\s+capital\s+management,\s*llc", lower):
         return "Morgan Stanley Capital Management, LLC"
-
+    # Explicit: Robinhood Markets Inc
+    if re.search(r"robinhood\s+markets?\s+inc", lower):
+        return "Robinhood Markets Inc"
+    if re.search(r"robinhood\s+markets?\s+inc", lower):
+        return "Charles Schwab"
     # Heuristic fallback: if the page looks like a consolidated/composite cover,
     # grab the first plausible line that looks like an issuer/legal name.
     if "consolidated 1099" in lower or "composite 1099" in lower:
@@ -1097,6 +1346,30 @@ def print_pdf_bookmarks(path: str):
 
 # ── Merge + bookmarks + multi-method extraction
 nek = None
+def classify_div_int(text: str) -> str | None:
+    """
+    Classify a page as 1099-DIV or 1099-INT if it matches the required
+    header lines. Returns "1099-DIV", "1099-INT", or None.
+    """
+    lower = text.lower()
+
+    div_match = (
+        "1099-div" in lower
+        and "dividends & distributions" in lower
+        and "ordinary dividends" in lower
+        and "description cusippay" in lower
+    )
+    int_match = (
+        "1099-int" in lower
+        and "interest income" in lower
+        and "description cusippay" in lower
+    )
+
+    if div_match:
+        return "1099-DIV"
+    elif int_match:
+        return "1099-INT"
+    return None
 # ── Merge + bookmarks + cleanup
 def merge_with_bookmarks(input_dir: str, output_pdf: str):
     # Prevent storing merged file inside input_dir
@@ -1104,7 +1377,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     abs_output = os.path.abspath(output_pdf)
     if abs_output.startswith(abs_input + os.sep):
         abs_output = os.path.join(os.path.dirname(abs_input), os.path.basename(abs_output))
-        logger.warning(f"Moved output outside: {abs_out}")
+        logger.warning(f"Moved output outside: {abs_output}")
     all_files = sorted(
        f for f in os.listdir(abs_input)
        if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
@@ -1283,6 +1556,9 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     # ---- Consolidated-1099 synthesis (insert this BEFORE income.sort(...)) ----
     consolidated_payload = {}        # key -> list of real page entries
     consolidated_pages = set()       # pages already placed under Consolidated-1099
+    # Track pages we already decided are "Unused" so we don't touch them again
+    unused_pages: set[tuple[str, int]] = set()
+
 
     for acct, pages in account_pages.items():
         if len(pages) <= 1:
@@ -1303,16 +1579,21 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
     page_num = 0
     stop_after_na = False
     import mimetypes
-    def append_and_bookmark(entry, parent, title):
-        nonlocal page_num
+    seen_pages = set()
+    def append_and_bookmark(entry, parent, title, with_bookmark=True):
+        nonlocal page_num, seen_pages
+        sig = (entry[0], entry[1])
+        if sig in seen_pages:
+            print(f"[DUPLICATE] Skipping {os.path.basename(entry[0])} page {entry[1]+1}", file=sys.stderr)
+            return
+        seen_pages.add(sig)
         p, idx, _ = entry
         mime_type, _ = mimetypes.guess_type(p)
 
-        # Skip non-PDF files
         if mime_type != 'application/pdf':
             print(f"⚠️  Skipping non-PDF file: {p}", file=sys.stderr)
             return
-       
+
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             w = PdfWriter()
             try:
@@ -1323,21 +1604,25 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             except Exception:
                 print(f"Temp write failed: {p} p{idx+1}", file=sys.stderr)
                 traceback.print_exc()
-                print(f"⚠️  Temp write failed for {p!r} (page {idx+1}); skipping.", file=sys.stderr)
-                traceback.print_exc()
                 return
             tmp_path = tmp.name
-        with open(tmp_path,'rb') as fh:
+        with open(tmp_path, 'rb') as fh:
             merger.append(fileobj=fh)
         os.unlink(tmp_path)
-        merger.add_outline_item(title, page_num, parent=parent)
-        page_num += 1
-   
-   
 
+    # ✅ Only add bookmark if requested
+        if with_bookmark and title:
+            merger.add_outline_item(title, page_num, parent=parent)
+
+        page_num += 1
+
+
+   
+   
+   
     # ── Bookmarks
    
-    if income and not stop_after_na:
+    if income:
         root = merger.add_outline_item('Income', page_num)
         groups = group_by_type(income)
         for form, grp in sorted(groups.items(), key=lambda kv: get_form_priority(kv[0], 'Income')):
@@ -1349,41 +1634,86 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
             if stop_after_na:
                 break
             if form == 'Consolidated-1099':
-    # Create the top-level Consolidated-1099 node under Income (once)
                 cons_root = merger.add_outline_item('Consolidated-1099', page_num, parent=root)
 
                 for entry in filtered_grp:
                     key, _, _ = entry
                     acct = key.split("::", 1)[1]
 
-        # 👉 Use issuer if we have it, and alias it
                     issuer = account_names.get(acct)
-                    if issuer:
-                        issuer = alias_issuer(issuer)
-
-                    forms_label = f"{issuer} (Account: {acct})" if issuer else f"forms (Account: {acct})"
+                    issuer = alias_issuer(issuer) if issuer else None
+                    forms_label = issuer or f"Account {acct}"
                     forms_node = merger.add_outline_item(forms_label, page_num, parent=cons_root)
 
-        # --- Consolidated-1099 Pages ---
-                    # --- Consolidated-1099 Pages ---
-                    for real_entry in consolidated_payload.get(key, []):
+                    real_entries = consolidated_payload.get(key, [])
+
+        # (optional context labels — does NOT skip appends)
+             
+
+        # ALWAYS append the real pages
+                    for real_entry in real_entries:
                         page_text = extract_text(real_entry[0], real_entry[1])
+                        if is_unused_page(page_text):
+                            print(f"[DROP?] {os.path.basename(real_entry[0])} page {real_entry[1]+1} "
+                                    f"marked as UNUSED", file=sys.stderr)
+                            others.append((real_entry[0], real_entry[1], "Unused"))
+                            #append_and_bookmark(real_entry, forms_node, "Unused")
+                            continue
 
-            # Detect all matching forms on this page
-                        form_matches = classify_text_multi(page_text)
+    # 1️⃣ First, check strong classifier
+                        form_type = classify_div_int(page_text)
 
-                        # Append the page once using the first detected form (or fallback if none)
-                        if form_matches:
-                            first_form = form_matches[0]
-                            append_and_bookmark(real_entry, forms_node, first_form)
+                        if form_type == "1099-DIV":
+                            append_and_bookmark(real_entry, forms_node, "1099-DIV Description")
 
-    # Add extra bookmarks for the same page (no duplicate appends)
-                            for ft in form_matches[1:]:
+        # 2️⃣ Also check for other forms on same page
+                            extra_forms = [ft for ft in (classify_text_multi(page_text) or [])
+                                           if ft != "1099-DIV"]
+                            for ft in extra_forms:
                                 merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-                        else:
-                            append_and_bookmark(real_entry, forms_node, f"Account {acct}")
 
-                continue  # done with this form; go to next
+                        elif form_type == "1099-INT":
+                            if has_nonzero_int(page_text):
+                                append_and_bookmark(real_entry, forms_node, "1099-INT Description")
+                            else:
+        # Still append the page, but give it a neutral label
+                                append_and_bookmark(real_entry, forms_node, "1099-INT (all zero)")
+                                print(f"[NOTE] {os.path.basename(real_entry[0])} page {real_entry[1]+1} "
+                                  f"→ 1099-INT detected but all zero; kept page with neutral bookmark", file=sys.stderr)
+
+                        # 2️⃣ Also check for other forms on same page
+                            extra_forms = [ft for ft in (classify_text_multi(page_text) or [])
+                                           if ft != "1099-INT"]
+                            for ft in extra_forms:
+                                merger.add_outline_item(ft, page_num - 1, parent=forms_node)
+
+                        else:
+        # 3️⃣ Fallback: pure multi-form logic
+                            form_matches = classify_text_multi(page_text)
+
+                            title = None
+                            extra_forms = []
+
+                            if form_matches:
+    # Special rule: drop 1099-INT if all zero
+                                if "1099-INT" in form_matches and not has_nonzero_int(page_text):
+                                    form_matches = [f for f in form_matches if f != "1099-INT"]
+
+                                if form_matches:
+                                    title = form_matches[0]
+                                    extra_forms = form_matches[1:]
+
+# Append once, with or without bookmark
+                            if title:
+                                append_and_bookmark(real_entry, forms_node, title)
+                                for ft in extra_forms:
+                                    merger.add_outline_item(ft, page_num - 1, parent=forms_node)
+                            else:
+    # Only zero INT → keep page, no bookmark
+                                append_and_bookmark(real_entry, forms_node, "", with_bookmark=False)
+
+                continue
+  # done with this form; go to next
             #Normal Forms
             node = merger.add_outline_item(form, page_num, parent=root)
             for j, entry in enumerate(filtered_grp, 1):
@@ -1410,18 +1740,15 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # NEW: strip ", N.A" and stop after this bookmark
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")
-                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
-                    append_and_bookmark(entry, node, lbl)
-                    stop_after_na = True
-                    break
-
+                print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                   
                 # normal case
                 print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Income', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
             if stop_after_na:
                 break
 
-    if expenses and not stop_after_na:
+    if expenses:
         root = merger.add_outline_item('Expenses', page_num)
         for form, grp in group_by_type(expenses).items():
             if stop_after_na:
@@ -1438,11 +1765,8 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # NEW: strip ", N.A" and stop
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")
-                    print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
-                    append_and_bookmark(entry, node, lbl)
-                    stop_after_na = True
-                    break
-
+                print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
+                   
                 # normal case
                 print(f"[Bookmark] {os.path.basename(path)} p{idx+1} → Category='Expenses', Form='{form}', Title='{lbl}'", file=sys.stderr)
                 append_and_bookmark(entry, node, lbl)
@@ -1467,6 +1791,11 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
 
             append_and_bookmark(entry, node, lbl)
 
+    input_count = sum(
+    len(PdfReader(os.path.join(input_dir, f)).pages)
+    for f in files if f.lower().endswith(".pdf")
+    )
+    print(f"[SUMMARY] Input pages={input_count}, Output pages={page_num}", file=sys.stderr)
 
     # Write merged output
     os.makedirs(os.path.dirname(abs_output), exist_ok=True)

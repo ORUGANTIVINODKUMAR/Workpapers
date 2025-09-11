@@ -1,29 +1,31 @@
-# ---- Runtime Stage ----
-FROM node:22.17.0-slim AS runtime
- 
-# Install only the runtime bits of Poppler, Ghostscript, Tesseract
+FROM node:22.17.0-slim
+
+# ---- System deps (python, tesseract, poppler for pdfinfo) ----
 RUN apt-get update \
-&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 python3-pip \
-      poppler-utils \
-      ghostscript \
-      tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
+&& apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip \
+    tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
+    poppler-utils libpoppler-cpp-dev \
 && rm -rf /var/lib/apt/lists/*
- 
+
 WORKDIR /app
- 
-# Copy built venv (with python shim) and app code from builder
-COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /app      /app
- 
-# Make venv bins first in PATH & disable Python output buffering
-ENV PATH="/opt/venv/bin:${PATH}" \
-    PYTHONUNBUFFERED=1
- 
-# Expose port and start Node
+
+# ---- Install deps ----
+COPY requirements.txt package.json package-lock.json ./
+RUN python3 -m venv /opt/venv \
+&& /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
+&& npm ci --omit=dev
+
+# Make venv bins available
+ENV PATH="/opt/venv/bin:${PATH}"
+
+# ---- App code ----
+COPY . .
+
+# ---- Runtime config ----
 ARG PORT=3000
 ENV PORT=$PORT
 EXPOSE $PORT
- 
-CMD ["node", "server.js"]
 
+# ---- Start only Node. Python is spawned by your upload route ----
+CMD ["node", "server.js"]

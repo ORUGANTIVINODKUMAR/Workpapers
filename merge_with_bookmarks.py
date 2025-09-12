@@ -113,22 +113,6 @@ def extract_text(path: str, page_index: int) -> str:
    
     return text
 
-# ── Full‐PDF text extractor
-def extract_text_from_pdf(file_path: str) -> str:
-    text = ""
-    try:
-        with open(file_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            for i, page in enumerate(reader.pages):
-                pt = page.extract_text() or ""
-                if pt.strip():
-                    print_phrase_context(pt)
-                    text += f"\n--- Page {i+1} ---\n" + pt
-    except Exception as e:
-        logger.error(f"Error in full PDF extract {file_path}: {e}")
-        text = f"Error extracting full PDF: {e}"
-    return text
-
 # ── OCR for images
 def extract_text_from_image(file_path: str) -> str:
     text = ""
@@ -1447,23 +1431,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     extracts['Tesseract'] = ""
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
 
-                print("→ FullPDF extract_text_from_pdf():", file=sys.stderr)
-                try:
-                    extracts['FullPDF'] = extract_text_from_pdf(path)
-                    print(extracts['FullPDF'], file=sys.stderr)
-                except Exception as e:
-                    extracts['FullPDF'] = ""
-                    print(f"[ERROR] FullPDF failed: {e}", file=sys.stderr)
-
-                print("→ pdfplumber:", file=sys.stderr)
-                try:
-                    with pdfplumber.open(path) as pdf:
-                        extracts['pdfplumber'] = pdf.pages[i].extract_text() or ""
-                        print(extracts['pdfplumber'], file=sys.stderr)
-                except Exception as e:
-                    extracts['pdfplumber'] = ""
-                    print(f"[ERROR] pdfplumber failed: {e}", file=sys.stderr)
-
+                
                 print("→ PyMuPDF (fitz):", file=sys.stderr)
                 try:
                     doc = fitz.open(path)

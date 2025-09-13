@@ -16,7 +16,7 @@ from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
 import pytesseract
-from pdf2image import convert_from_path
+#rom pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import pdfplumber
 from PIL import Image
@@ -46,7 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Configuration
-POPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
+#OPPLER_PATH = os.environ.get("POPPLER_PATH")  # e.g. "C:\\poppler\\Library\\bin"
 OCR_MIN_CHARS = 50
 PDFMINER_LA_PARAMS = LAParams(line_margin=0.2, char_margin=2.0)
 
@@ -80,20 +80,64 @@ def get_form_priority(ftype: str, category: str) -> int:
 def log_extraction(src: str, method: str, text: str):
     snippet = text[:2000].replace('\n',' ') + ('...' if len(text)>2000 else '')
     logger.info(f"[{method}] {os.path.basename(src)} → '{snippet}'")
+import io
+import fitz
+from PIL import Image
 
-# ── Tiered text extraction for PDF pages
+def pdf_page_to_image(path: str, page_index: int, dpi: int = 300) -> Image.Image:
+    import io
+    doc = fitz.open(path)
+    page = doc.load_page(page_index)
+
+    # Scale for DPI
+    zoom = dpi / 72
+    mat = fitz.Matrix(zoom, zoom)
+
+    # Render with high quality (alpha=False = no transparency)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+
+    # Extra: convert to grayscale for OCR
+    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
+
+    # Optional: Binarize (thresholding) to boost OCR accuracy
+    img = img.point(lambda x: 0 if x < 200 else 255, "1")
+
+    doc.close()
+    return img
+
+
 def extract_text(path: str, page_index: int) -> str:
     text = ""
     # OCR fallback
     if len(text.strip()) < OCR_MIN_CHARS:
         try:
-            opts = {'poppler_path': POPPLER_PATH} if POPPLER_PATH else {}
-            img = convert_from_path(path, first_page=page_index+1, last_page=page_index+1, **opts)[0]
-            t3 = pytesseract.image_to_string(img, config="--psm 6") or ""
-            print(f"[OCR full]\n{t3}", file=sys.stderr)
-            if len(t3.strip()) > len(text): text = t3
+        # 🔹 Start with higher DPI for sharper OCR
+            for dpi in (200, 300):
+                img = pdf_page_to_image(path, page_index, dpi=dpi)
+
+            # 🔹 Preprocess: convert to grayscale + threshold (binarization)
+                gray = img.convert("L")
+                bw = gray.point(lambda x: 0 if x < 180 else 255, '1')  # simple binarization
+
+            # 🔹 OCR with stronger settings
+                t_ocr = pytesseract.image_to_string(
+                    bw,
+                    lang="eng",
+                    config="--oem 3 --psm 6"   # OEM 3 = default LSTM, PSM 6 = block of text
+                ) or ""
+
+                print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
+
+                if len(t_ocr.strip()) > len(text):
+                    text = t_ocr
+
+            # ✅ stop early if OCR result is strong
+                if len(text.strip()) >= OCR_MIN_CHARS:
+                    break
+
         except Exception:
             traceback.print_exc()
+
     # PDFMiner
     try:
         t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
@@ -113,21 +157,9 @@ def extract_text(path: str, page_index: int) -> str:
    
     return text
 
-# ── OCR for images
-def extract_text_from_image(file_path: str) -> str:
-    text = ""
-    try:
-        img = Image.open(file_path)
-        if img.mode!='RGB': img = img.convert('RGB')
-        et = pytesseract.image_to_string(img)
-        if et.strip():
-            print_phrase_context(et)
-            text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
-        else: text = f"No text in image: {os.path.basename(file_path)}"
-    except Exception as e:
-        logger.error(f"Error OCR image {file_path}: {e}")
-        text = f"Error OCR image: {e}"
-    return text
+# ── Full‐PDF text extractor
+
+
 def is_unused_page(text: str) -> bool:
     """
     Detect pages that are just year-end messages, instructions,
@@ -703,7 +735,21 @@ def parse_w2(text: str) -> Dict[str, str]:
     lines: List[str] = text.splitlines()
     emp_name = emp_addr = "N/A"
     bookmark = None
-   
+    full_lower = text.lower()
+
+    # 🔹 1) FCA US LLC override
+    if any(v in full_lower for v in ("fca us llc", "fca us, llc", "fcaus llc")):
+        emp_name = "FCA US LLC"
+        return {
+            'ssn': ssn,
+            'ein': ein,
+            'employer_name': emp_name,
+            'employer_address': emp_addr,
+            'employee_name': 'N/A',
+            'employee_address': 'N/A',
+            'bookmark': emp_name
+        }
+       
     marker = (
         "c Employer's name, address, and ZIP code "
         "8 Allocated tips 3 Social security wages 4 Social security tax withheld"
@@ -720,6 +766,7 @@ def parse_w2(text: str) -> Dict[str, str]:
             if j < len(lines):
                 raw = lines[j].strip()
                 # only proceed if this line really starts with a letter
+               
                 if re.match(r'^[A-Za-z]', raw):
                     # strip off the numeric tail
                     m = re.match(r'^(.+?)\s+\d', raw)
@@ -736,7 +783,8 @@ def parse_w2(text: str) -> Dict[str, str]:
                     }
             break  # no valid next line, so stop looking
     for i, line in enumerate(lines):
-            if "0000000845 - PAYROL" in line:
+            # Match anything (numbers/letters/mixed) followed by " - PAYROL"
+        if re.search(r".+\s*-\s*PAYROL", line, re.IGNORECASE):
                 j = i + 1
                 while j < len(lines) and not lines[j].strip():
                     j += 1
@@ -904,25 +952,35 @@ def parse_w2(text: str) -> Dict[str, str]:
         }
        #-----------------------------------------
     # 2) Standard W-2 parsing
+    # 2) Standard W-2 parsing
     for i, line in enumerate(lines):
         if "employer" in line.lower() and "name" in line.lower():
-            # next non-blank = name
+        # next non-blank = name
             j = i + 1
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
-                parts = [p.strip() for p in re.split(r"[|]", lines[j])]
+                raw = lines[j].strip()
+
+            # 🚫 Skip if OCR picked up junk lines
+                if any(skip in raw.lower() for skip in ("omb", "form w-2", "department of the treasury", "irs")):
+                    continue
+                if re.match(r'^\d{3,}$', raw):  # numeric-only junk
+                    continue
+
+                parts = [p.strip() for p in re.split(r"[|]", raw)]
                 for p in parts:
                     if p and re.search(r"[A-Za-z]", p) and not re.match(r"^\d", p):
                         emp_name = normalize_entity_name(p)
                         break
                 j += 1
-            # next non-blank = address
+        # next non-blank = address
             while j < len(lines) and not lines[j].strip():
                 j += 1
             if j < len(lines):
                 emp_addr = lines[j].strip()
             break
+
 
     # dedupe if found
     if emp_name != "N/A":
@@ -1406,25 +1464,9 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # Multi-method extraction
                 extracts = {}
 
-                print("→ PDFMiner:", file=sys.stderr)
-                try:
-                    extracts['PDFMiner'] = pdfminer_extract(path, page_numbers=[i], laparams=PDFMINER_LA_PARAMS) or ""
-                    print(extracts['PDFMiner'], file=sys.stderr)
-                except Exception as e:
-                    extracts['PDFMiner'] = ""
-                    print(f"[ERROR] PDFMiner failed: {e}", file=sys.stderr)
-
-                print("→ PyPDF2:", file=sys.stderr)
-                try:
-                    extracts['PyPDF2'] = PdfReader(path).pages[i].extract_text() or ""
-                    print(extracts['PyPDF2'], file=sys.stderr)
-                except Exception as e:
-                    extracts['PyPDF2'] = ""
-                    print(f"[ERROR] PyPDF2 failed: {e}", file=sys.stderr)
-
                 print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    img = convert_from_path(path, first_page=i+1, last_page=i+1, poppler_path=POPPLER_PATH or None)[0]
+                    img = pdf_page_to_image(path, i, dpi=150)  # ✅ use your PyMuPDF helper
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
                     print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:
@@ -1432,15 +1474,8 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
 
                 
-                print("→ PyMuPDF (fitz):", file=sys.stderr)
-                try:
-                    doc = fitz.open(path)
-                    extracts['PyMuPDF'] = doc.load_page(i).get_text()
-                    doc.close()
-                    print(extracts['PyMuPDF'], file=sys.stderr)
-                except Exception as e:
-                    extracts['PyMuPDF'] = ""
-                    print(f"[ERROR] PyMuPDF failed: {e}", file=sys.stderr)
+
+                
 
                 print("=" * 400, file=sys.stderr)
              

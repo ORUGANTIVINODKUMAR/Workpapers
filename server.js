@@ -4,87 +4,70 @@ const cors = require('cors');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');  // npm install uuid
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const MERGED_DIR = path.join(__dirname, 'merged');
+const BASE_UPLOAD_DIR = path.join(__dirname, 'uploads');
+const BASE_MERGED_DIR = path.join(__dirname, 'merged');
 
-[UPLOAD_DIR, MERGED_DIR].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`Created missing directory: ${dir}`);
-  }
+[BASE_UPLOAD_DIR, BASE_MERGED_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-//const PORT = process.env.PORT || 3001;
 app.use(cors());
-app.use(express.static('public')); 
+app.use(express.static('public'));
 
-//const upload = multer({ dest: 'uploads/' }); replaced this code with 16 -- 25 code
-// To fix the PDF corruption issue,
-// Fixed: Storage config with proper filename formatting 
+// dynamic storage: each request gets its own folder
 const storage = multer.diskStorage({
-  destination: function (req,file, cd){
-    cd(null, 'uploads/');
+  destination: function (req, file, cb) {
+    if (!req.userTempDir) {
+      const uniqueId = uuidv4();
+      req.userTempDir = path.join(BASE_UPLOAD_DIR, uniqueId);
+      fs.mkdirSync(req.userTempDir, { recursive: true });
+    }
+    cb(null, req.userTempDir);
   },
-  filename: function (req, file, cd){
-    //const originalExt = path.extname(file.originalname) || '.pdf'; // Default to .pdf 
-const safeName = `${Date.now()}-${file.originalname}`;
-
-    cd(null, safeName);
+  filename: function (req, file, cb) {
+    const safeName = `${Date.now()}-${file.originalname}`;
+    cb(null, safeName);
   }
-})
-
-const upload = multer({ storage: storage });
+});
+const upload = multer({ storage });
 
 app.post('/merge', upload.array('pdfs'), (req, res) => {
-  const inputDir = 'uploads';
-  const outputPath = path.join('merged', `merged_${Date.now()}.pdf`);
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).send('No files uploaded');
+  }
 
-  //  Log uploaded files (optional, for debugging)
-  console.log("Uploaded files:");
-  req.files.forEach(file => {
-    console.log(file.path);
-  });
-  
-  const pythonPath = 'C:\\Python312\\python.exe';
+  const inputDir = req.userTempDir;
+  const outputPath = path.join(BASE_MERGED_DIR, `merged_${uuidv4()}.pdf`);
+
+  console.log("Uploaded files for this user:");
+  req.files.forEach(file => console.log(file.path));
+
   const python = spawn('python', ['merge_with_bookmarks.py', inputDir, outputPath]);
 
-  python.stdout.on('data', data => {
-    console.log(`[PY-OUT] ${data}`.trim());
-  });
-  python.stderr.on('data', data => {
-    console.error(`[PY-ERR] ${data}`.trim());
-  });
-
+  python.stdout.on('data', data => console.log(`[PY-OUT] ${data}`.trim()));
+  python.stderr.on('data', data => console.error(`[PY-ERR] ${data}`.trim()));
 
   python.on('close', (code) => {
     if (code === 0) {
       res.download(outputPath, () => {
-        // Cleanup
-        //fs.readdirSync(inputDir).forEach(file => fs.unlinkSync(path.join(inputDir, file)));
-        //fs.unlinkSync(outputPath);
+        // cleanup user temp dir
+        try {
+          fs.rmSync(inputDir, { recursive: true, force: true });
+        } catch (e) {
+          console.error("Failed cleanup:", e);
+        }
       });
     } else {
       res.status(500).send('Failed to merge PDFs with bookmarks');
     }
   });
-}
-
-);
-
-app.post('/merge', upload.array('pdfs'), (req, res) => {
-  console.log("Uploaded files:");
-  req.files.forEach(file => {
-    console.log(file.path); // This is safe here
-  });
-
-  // ... rest of your code
 });
 
-
 app.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });

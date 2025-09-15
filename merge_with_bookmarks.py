@@ -106,6 +106,7 @@ def pdf_page_to_image(path: str, page_index: int, dpi: int = 300) -> Image.Image
     return img
 
 
+# ── Tiered text extraction for PDF pages
 def extract_text(path: str, page_index: int) -> str:
     text = ""
     # OCR fallback
@@ -158,8 +159,36 @@ def extract_text(path: str, page_index: int) -> str:
     return text
 
 # ── Full‐PDF text extractor
+def extract_text_from_pdf(file_path: str) -> str:
+    text = ""
+    try:
+        with open(file_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            for i, page in enumerate(reader.pages):
+                pt = page.extract_text() or ""
+                if pt.strip():
+                    print_phrase_context(pt)
+                    text += f"\n--- Page {i+1} ---\n" + pt
+    except Exception as e:
+        logger.error(f"Error in full PDF extract {file_path}: {e}")
+        text = f"Error extracting full PDF: {e}"
+    return text
 
-
+# ── OCR for images
+def extract_text_from_image(file_path: str) -> str:
+    text = ""
+    try:
+        img = Image.open(file_path)
+        if img.mode!='RGB': img = img.convert('RGB')
+        et = pytesseract.image_to_string(img)
+        if et.strip():
+            print_phrase_context(et)
+            text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
+        else: text = f"No text in image: {os.path.basename(file_path)}"
+    except Exception as e:
+        logger.error(f"Error OCR image {file_path}: {e}")
+        text = f"Error OCR image: {e}"
+    return text
 def is_unused_page(text: str) -> bool:
     """
     Detect pages that are just year-end messages, instructions,
@@ -1464,6 +1493,16 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                 # Multi-method extraction
                 extracts = {}
 
+                print("→ PDFMiner:", file=sys.stderr)
+                try:
+                    extracts['PDFMiner'] = pdfminer_extract(path, page_numbers=[i], laparams=PDFMINER_LA_PARAMS) or ""
+                    print(extracts['PDFMiner'], file=sys.stderr)
+                except Exception as e:
+                    extracts['PDFMiner'] = ""
+                    print(f"[ERROR] PDFMiner failed: {e}", file=sys.stderr)
+
+               
+
                 print("→ Tesseract OCR:", file=sys.stderr)
                 try:
                     img = pdf_page_to_image(path, i, dpi=150)  # ✅ use your PyMuPDF helper
@@ -1473,9 +1512,32 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     extracts['Tesseract'] = ""
                     print(f"[ERROR] Tesseract failed: {e}", file=sys.stderr)
 
-                
+                print("→ FullPDF extract_text_from_pdf():", file=sys.stderr)
+                try:
+                    extracts['FullPDF'] = extract_text_from_pdf(path)
+                    print(extracts['FullPDF'], file=sys.stderr)
+                except Exception as e:
+                    extracts['FullPDF'] = ""
+                    print(f"[ERROR] FullPDF failed: {e}", file=sys.stderr)
 
-                
+                print("→ pdfplumber:", file=sys.stderr)
+                try:
+                    with pdfplumber.open(path) as pdf:
+                        extracts['pdfplumber'] = pdf.pages[i].extract_text() or ""
+                        print(extracts['pdfplumber'], file=sys.stderr)
+                except Exception as e:
+                    extracts['pdfplumber'] = ""
+                    print(f"[ERROR] pdfplumber failed: {e}", file=sys.stderr)
+
+                print("→ PyMuPDF (fitz):", file=sys.stderr)
+                try:
+                    doc = fitz.open(path)
+                    extracts['PyMuPDF'] = doc.load_page(i).get_text()
+                    doc.close()
+                    print(extracts['PyMuPDF'], file=sys.stderr)
+                except Exception as e:
+                    extracts['PyMuPDF'] = ""
+                    print(f"[ERROR] PyMuPDF failed: {e}", file=sys.stderr)
 
                 print("=" * 400, file=sys.stderr)
              

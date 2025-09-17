@@ -71,7 +71,14 @@
           <i class="bi bi-upload me-2"></i>
           Upload &amp; Merge Documents
         </button>
-
+        <!-- ✅ Progress Bar goes here -->
+        <div class="progress mt-3" style="height: 25px; display: none;" id="progress-container">
+          <div id="progress-bar"
+               class="progress-bar progress-bar-striped progress-bar-animated"
+               role="progressbar" style="width: 0%">0%</div>
+        </div>
+        <p id="progress-msg" class="mt-2 text-info"></p>
+<!-- ✅ End of progress bar block -->
         <!-- Features Grid -->
         <div class="features mt-4">
           <i class="bi bi-info-circle"></i>

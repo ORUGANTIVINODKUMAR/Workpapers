@@ -72,7 +72,7 @@ app.post('/merge', upload.array('pdfs'), (req, res) => {
   console.log("Uploaded files:");
   req.files.forEach(file => console.log(file.path));
 
-  const pythonPath = 'C:\\Python312\\python.exe'; // adjust if needed
+  const pythonPath = 'python3';   // works on Render/Linux
   const python = spawn(pythonPath, ['merge_with_bookmarks.py', inputDir, outputPath]);
 
   python.stdout.on('data', data => {

@@ -3,6 +3,10 @@ const dropZone   = document.getElementById('drop-zone');
 const fileInput  = document.getElementById('file-input');
 const fileList   = document.getElementById('file-list');
 const mergeBtn   = document.getElementById('merge-btn');
+const progressContainer = document.getElementById('progress-container');
+const progressBar = document.getElementById('progress-bar');
+const progressMsg = document.getElementById('progress-msg');
+
 
 let selectedFiles = [];
 
@@ -126,6 +130,25 @@ mergeBtn.addEventListener('click', async () => {
   const formData = new FormData();
   selectedFiles.forEach(f => formData.append('pdfs', f));
 
+  // Reset and show progress bar
+  progressContainer.style.display = "block";
+  progressBar.style.width = "0%";
+  progressBar.innerText = "0%";
+  progressMsg.innerText = "Starting...";
+
+  // Start listening for progress updates
+  const evtSource = new EventSource('/progress');
+  evtSource.onmessage = (event) => {
+    const { percent, message } = JSON.parse(event.data);
+    progressBar.style.width = percent + "%";
+    progressBar.innerText = percent + "%";
+    progressMsg.innerText = message;
+
+    if (percent === 100) {
+      evtSource.close();
+    }
+  };
+
   try {
     const response = await fetch('/merge', { method: 'POST', body: formData });
     if (!response.ok) throw new Error('Merge failed');
@@ -137,7 +160,11 @@ mergeBtn.addEventListener('click', async () => {
     document.body.appendChild(link);
     link.click();
     link.remove();
+
+    progressMsg.innerText = "Download ready!";
   } catch (err) {
     alert(err.message);
+    progressMsg.innerText = "Error during merge.";
   }
 });
+

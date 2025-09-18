@@ -107,88 +107,73 @@ def pdf_page_to_image(path: str, page_index: int, dpi: int = 300) -> Image.Image
 
 
 # ── Tiered text extraction for PDF pages
-def extract_text(path: str, page_index: int) -> str:
+def extract_text(path: str, page_index: int = None, is_image: bool = False) -> str:
+    """
+    OCR-first extractor for PDFs and images.
+    - Always runs Tesseract OCR (compulsory).
+    - Preprocesses page images for better accuracy.
+    - Falls back to PyMuPDF/pdfminer/PyPDF2 only if OCR text is too weak.
+    """
     text = ""
-    # OCR fallback
-    if len(text.strip()) < OCR_MIN_CHARS:
-        try:
-        # 🔹 Start with higher DPI for sharper OCR
-            for dpi in (200, 300):
-                img = pdf_page_to_image(path, page_index, dpi=dpi)
 
-            # 🔹 Preprocess: convert to grayscale + threshold (binarization)
-                gray = img.convert("L")
-                bw = gray.point(lambda x: 0 if x < 180 else 255, '1')  # simple binarization
-
-            # 🔹 OCR with stronger settings
-                t_ocr = pytesseract.image_to_string(
-                    bw,
-                    lang="eng",
-                    config="--oem 3 --psm 6"   # OEM 3 = default LSTM, PSM 6 = block of text
-                ) or ""
-
-                print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
-
-                if len(t_ocr.strip()) > len(text):
-                    text = t_ocr
-
-            # ✅ stop early if OCR result is strong
-                if len(text.strip()) >= OCR_MIN_CHARS:
-                    break
-
-        except Exception:
-            traceback.print_exc()
-
-    # PDFMiner
     try:
-        t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        print(f"[PDFMiner full]\n{t1}", file=sys.stderr)
-        if len(t1.strip()) > len(text): text = t1
-    except Exception:
-        traceback.print_exc()
-    # PyPDF2 fallback
-    if len(text.strip()) < OCR_MIN_CHARS:
+        # --- Images (JPG, PNG, etc.) ---
+        if is_image:
+            img = Image.open(path)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            gray = img.convert("L")
+            bw = gray.point(lambda x: 0 if x < 180 else 255, "1")  # threshold
+            text = pytesseract.image_to_string(bw, lang="eng", config="--oem 3 --psm 6") or ""
+            return text.strip()
+
+        # --- PDFs ---
+        # Step 1: Convert page to image for OCR
+        img = pdf_page_to_image(path, page_index, dpi=300)
+
+        # Preprocess: grayscale + threshold
+        gray = img.convert("L")
+        bw = gray.point(lambda x: 0 if x < 180 else 255, "1")
+
+        # Run OCR (compulsory)
+        text = pytesseract.image_to_string(
+            bw,
+            lang="eng",
+            config="--oem 3 --psm 6"   # OEM 3 = LSTM, PSM 6 = assume a block of text
+        ) or ""
+
+        # If OCR gave good text, return directly
+        if len(text.strip()) >= OCR_MIN_CHARS:
+            return text
+
+        # Otherwise, try PDF extractors as a supplement
+        fallback_texts = []
+        try:
+            doc = fitz.open(path)
+            fallback_texts.append(doc.load_page(page_index).get_text() or "")
+            doc.close()
+        except: pass
+        try:
+            t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
+            fallback_texts.append(t1)
+        except: pass
         try:
             reader = PdfReader(path)
-            t2 = reader.pages[page_index].extract_text() or ""
-            print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
-            if len(t2.strip()) > len(text): text = t2
-        except Exception:
-            traceback.print_exc()
-   
-    return text
+            fallback_texts.append(reader.pages[page_index].extract_text() or "")
+        except: pass
 
-# ── Full‐PDF text extractor
-def extract_text_from_pdf(file_path: str) -> str:
-    text = ""
-    try:
-        with open(file_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            for i, page in enumerate(reader.pages):
-                pt = page.extract_text() or ""
-                if pt.strip():
-                    print_phrase_context(pt)
-                    text += f"\n--- Page {i+1} ---\n" + pt
-    except Exception as e:
-        logger.error(f"Error in full PDF extract {file_path}: {e}")
-        text = f"Error extracting full PDF: {e}"
-    return text
+        # Pick the longest fallback and append if useful
+        if fallback_texts:
+            extra = max(fallback_texts, key=len)
+            if len(extra) > len(text):
+                text += "\n" + extra
 
-# ── OCR for images
-def extract_text_from_image(file_path: str) -> str:
-    text = ""
-    try:
-        img = Image.open(file_path)
-        if img.mode!='RGB': img = img.convert('RGB')
-        et = pytesseract.image_to_string(img)
-        if et.strip():
-            print_phrase_context(et)
-            text = f"\n--- OCR Image {os.path.basename(file_path)} ---\n" + et
-        else: text = f"No text in image: {os.path.basename(file_path)}"
-    except Exception as e:
-        logger.error(f"Error OCR image {file_path}: {e}")
-        text = f"Error OCR image: {e}"
-    return text
+    except Exception:
+        traceback.print_exc()
+
+    return text.strip()
+
+
 def is_unused_page(text: str) -> bool:
     """
     Detect pages that are just year-end messages, instructions,

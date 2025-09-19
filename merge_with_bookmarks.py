@@ -112,32 +112,29 @@ def extract_text(path: str, page_index: int) -> str:
     # OCR fallback
     if len(text.strip()) < OCR_MIN_CHARS:
         try:
-        # 🔹 Start with higher DPI for sharper OCR
-            for dpi in (200, 300):
-                img = pdf_page_to_image(path, page_index, dpi=dpi)
+        # 🔹 Use only 300 DPI for sharper OCR
+            dpi = 300
+            img = pdf_page_to_image(path, page_index, dpi=dpi)
 
-            # 🔹 Preprocess: convert to grayscale + threshold (binarization)
-                gray = img.convert("L")
-                bw = gray.point(lambda x: 0 if x < 180 else 255, '1')  # simple binarization
+        # 🔹 Preprocess: convert to grayscale + threshold (binarization)
+            gray = img.convert("L")
+            bw = gray.point(lambda x: 0 if x < 180 else 255, '1')  # simple binarization
 
-            # 🔹 OCR with stronger settings
-                t_ocr = pytesseract.image_to_string(
-                    bw,
-                    lang="eng",
-                    config="--oem 3 --psm 6"   # OEM 3 = default LSTM, PSM 6 = block of text
-                ) or ""
+        # 🔹 OCR with stronger settings
+            t_ocr = pytesseract.image_to_string(
+                bw,
+                lang="eng",
+                config="--oem 3 --psm 6"   # OEM 3 = default LSTM, PSM 6 = block of text
+            ) or ""
 
-                print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
+            print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
 
-                if len(t_ocr.strip()) > len(text):
-                    text = t_ocr
-
-            # ✅ stop early if OCR result is strong
-                if len(text.strip()) >= OCR_MIN_CHARS:
-                    break
+            if len(t_ocr.strip()) > len(text):
+                text = t_ocr
 
         except Exception:
             traceback.print_exc()
+
 
     # PDFMiner
     try:

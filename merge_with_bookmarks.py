@@ -1062,7 +1062,7 @@ from typing import List
 def extract_1099int_bookmark(text: str) -> str:
     """
     Extract a clean payer/institution name for Form 1099-INT.
-   
+    
     Priority:
     1. Known overrides (US Bank, Capital One, Bank of America, etc.)
     2. First ALL-CAPS / title-cased line after 'foreign postal code, and telephone no.'
@@ -1080,36 +1080,54 @@ def extract_1099int_bookmark(text: str) -> str:
         "u.s. bank na": "US Bank NA",
         "capital one": "Capital One NA",
         "bank of america": "Bank of America",
-        "digital federal credit union": "Digital Federal Credit Union"
+        "digital federal credit union": "Digital Federal Credit Union",
+        "fifth third bank": "FIFTH THIRD BANK, N.A.",   # ✅ new override
+        "discover bank": "Discover Bank"
     }
     for key, val in overrides.items():
         if key in text.lower():
             return val
 
-    # --- Step 2: Look after the postal-code/telephone header ---
+    # --- Step 2: Top-down scan for bank-like names ---
+    for cand in lines:
+        cand_lower = cand.lower()
+        if any(word in cand_lower for word in ["bank", "credit union", "mortgage", "trust", "financial"]):
+            # strip trailing garbage like punctuation
+            return re.sub(r"[^\w\s.&,'-]+$", "", cand).strip()
+        
+    # --- Step 3: Look after payer header (if available) ---
     for i, l in enumerate(lower_lines):
-        if "foreign postal code" in l and "telephone" in l:
-            # check next 3 lines for candidate
+        if ("payer" in l and "information" in l) or ("foreign postal code" in l and "telephone" in l):
             for offset in range(1, 4):
                 if i + offset >= len(lines):
                     break
                 cand = lines[i + offset].strip()
                 cand_lower = cand.lower()
 
-                # skip junk lines
-                if not cand or "payer" in cand_lower or "recipient" in cand_lower:
+                # skip junk
+                bad_tokens = ["payer", "recipient", "federal id", "tin",
+                              "street", "road", "apt", "zip"]
+                if any(bad in cand_lower for bad in bad_tokens):
+                    continue
+                if re.match(r"^\d+[\s.]", cand):  # skip box lines
                     continue
 
-                # prefer ALL CAPS or Title Case institution names
-                if re.match(r"^[A-Z][A-Z\s&.,'-]{5,}$", cand) or "credit union" in cand_lower or "bank" in cand_lower:
+                if (re.match(r"^[A-Z][A-Z\s&.,'-]{5,}$", cand) and not re.search(r"\d", cand)) \
+                   or any(word in cand_lower for word in ["bank", "credit union", "mortgage", "trust", "financial"]):
                     return re.sub(r"[^\w\s.&'-]+$", "", cand).strip()
-
-    # --- Step 3: Global scan for institution-like names ---
+    # --- Step 4: Global scan again as a last resort ---
     for cand in lines:
         cand_lower = cand.lower()
-        if any(word in cand_lower for word in ["bank", "credit union", "trust", "financial", "federal"]):
-            if not ("payer" in cand_lower or "recipient" in cand_lower):
-                return re.sub(r"[^\w\s.&'-]+$", "", cand).strip()
+        bad_tokens = ["payer", "recipient", "federal id", "tin",
+                      "street", "road", "apt", "zip"]
+        if any(bad in cand_lower for bad in bad_tokens):
+            continue
+        if re.match(r"^\d+[\s.]", cand):
+            continue
+
+        if any(word in cand_lower for word in ["bank", "credit union", "mortgage", "trust", "financial"]):
+            return re.sub(r"[^\w\s.&'-]+$", "", cand).strip()
+
 
     # --- Step 4: Fallback ---
     return "1099-INT"
@@ -2148,3 +2166,7 @@ if __name__=='__main__':
     p.add_argument('output_pdf', help="Path for the merged PDF (outside input_dir)")
     args = p.parse_args()
     merge_with_bookmarks(args.input_dir, args.output_pdf)
+    
+    
+    
+    

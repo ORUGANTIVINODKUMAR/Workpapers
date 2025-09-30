@@ -231,14 +231,19 @@ def is_unused_page(text: str) -> bool:
         or "that are necessary for tax" in norm
         or "please note there may be a slight timing" in norm
         or "account statement will not have included" in norm
+        #1099-SA
         or "fees and interest earnings are not considered" in norm
         or "an hsa distribution" in norm
         or "death is includible in the account" in norm
         or "the account as of the date of death" in norm
         or "amount on the account holder" in norm
+        #1099-Mortgage
         or "for clients with paid mortgage insurance" in norm
         or "you can also contact the" in norm
+        #or "" in norm
+       
         or "may be requested by the mortgagor" in norm
+       
         or "you should contact a competent" in norm
         or "tax lot closed on a first in" in norm
         or "your form 1099 composite may include the following internal revenue service " in norm
@@ -255,19 +260,18 @@ def is_unused_page(text: str) -> bool:
         or "referenced to indicate individual items that make up the totals appearing" in norm
         or "issuers of the securities in your account reallocated certain income distribution" in norm
         or "the amount shown may be dividends a corporation paid directly" in norm
+        or "if this form includes amounts belonging to another person" in norm
+        or "spouse is not required to file a nominee return to show" in norm
         or "character when passed through or distributed to its direct or in" in norm
         or "brokers and barter exchanges must report proceeds from" in norm
         or "first in first out basis" in norm
-        or "why did i receive irs form" in norm
-        or "and then view tax forms" in norm
         or "see the instructions for your schedule d" in norm
         or "other property received in a reportable change in control or capital" in norm
-        or ("enclosed is your" in norm and "consolidated tax statement" in norm)
-        or ("filing your taxes" in norm and "turbotax" in norm)
+        or "enclosed is your" in norm and "consolidated tax statement" in norm
+        or "filing your taxes" in norm and "turbotax" in norm
         or ("details of" in norm and "investment activity" in norm)
         or bool(investment_details)
     )
-
 
 
 def extract_account_number(text: str) -> str:
@@ -500,7 +504,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     if "#bwnjgwm" in normalized:
         return "Others", "Unused"
     sa_front_patterns = [
-        r"earnings\s+on\s+excess\s+cont",   # will also match 'cont.' 
+        r"earnings\s+on\s+excess\s+cont",   # will also match 'cont.'
         r"form\s+1099-?sa",                 # matches '1099-SA' or '1099SA'
         r"fmv\s+on\s+date\s+of\s+death",
     ]
@@ -513,7 +517,7 @@ def classify_text(text: str) -> Tuple[str, str]:
 
     if is_unused_page(text):
         return "Unknown", "Unused"
-    
+   
     # 1) Detect W-2 pages by key header phrases
     if (
         "wages, tips, other compensation" in lower or
@@ -536,9 +540,9 @@ def classify_text(text: str) -> Tuple[str, str]:
     if found_sa5498_front:
         return "Expenses", "5498-SA"
 
-    
-    
-    
+   
+   
+   
     # If page matches any instruction patterns, classify as Others → Unused
     instruction_patterns = [
     # full “Instructions for Employee…” block (continued from back of Copy C)
@@ -698,69 +702,33 @@ def classify_text(text: str) -> Tuple[str, str]:
 
     #---------------------------1099-INT----------------------------------#
     #1099-INT for page 1
-    lower = re.sub(r"\s+", " ", text.lower())
-    
     int_front = [
-        "form 1099-int",
-        "interest income",
-        "copy b",
-        "early withdrawal penalty",
-        "tax-exempt interest",
-        "bond premium on treasury obligations",
-        "bond premium on tax-exempt bond",
-        "specified private activity bond",
-    ]
-    # Also allow number-prefixed matches (e.g., "8 tax-exempt interest")
-    int_front_regex = [
-        r"\d+\s*tax-exempt interest",
-        r"\d+\s*specified private activity bond",
-        r"\d+\s*bond premium on treasury obligations",
-        r"\d+\s*bond premium on tax-exempt bond",
-    ]
-    found_int_front = any(pat in lower for pat in int_front) or any(re.search(p, lower) for p in int_front_regex)
-    
-    int_unused = [
-    # Box descriptions from instructions section
-        "box 1. shows taxable interest",
-        "box 2. shows interest or principal forfeited",
-        "box 3. shows interest on u.s. savings bonds",
-        "box 4. shows backup withholding",
-        "box 5. any amount shown is your share of investment expenses",
-        "box 6. shows foreign tax paid",
-        "box 7. shows the country or u.s. possession",
-        "box 8. shows tax-exempt interest",
-        "box 9. shows tax-exempt interest subject to the alternative minimum tax",
-        "box 10. for a taxable or tax-exempt covered security",
-        "box 11. for a taxable covered security",
-        "box 12. for a u.s. treasury obligation that is a covered security",
-        "box 13. for a tax-exempt covered security",
-        "box 14. shows cusip number",
-        "boxes 15-17. state tax withheld",
-    
-    # Common generic phrases in the instruction block
-        "instructions for recipient",
-        "for more information, see form 8912",
-        "see the instructions above for a taxable covered security",
-        "see pub. 550",
-        "report the accrued market discount",
-        "see regulations section 1.171",
-        "future developments",
-        "free file program",
-        "nominees. if this form includes amounts belonging",
-        "the promotional bonus you",
-        "discover bank takes from the interest paid",
-        "itemized list of interest paid",
-        "once your form is available online to view",
-        
+        "3 Interest on U.S. Savings Bonds and Treasury obligations",
+        "Investment expenses",
+        "Tax-exempt interest",
+        "ond premium on Treasury obligations",
+        "withdrawal penalty",
+   
     ]
 
-    found_int_unused = any(pat in lower for pat in int_unused)
-    
-    # ✅ Priority: front wins
+    int_unused = [
+        "Box 1. Shows taxable interest paid to you ",
+        "Box 2. Shows interest or principal forfeited",
+        "Box 3. Shows interest on U.S. Savings Bonds",
+        "Box 8. Shows tax-exempt interest paid to",
+        "Box 10. For a taxable or tax-exempt covered security",
+        "if you are registered in the account",
+        "subject to reporting when paid regardless",
+        "if we are required to withhold tax"
+    ]
+    lower = text.lower()
+    found_int_front = any(pat.lower() in lower for pat in int_front)
+    found_int_unused = any(pat.lower() in lower for pat in int_unused)
+
+# 🔁 Priority: 1099-INT > Unused
     if found_int_front:
         return "Income", "1099-INT"
-    # Only mark as unused if NO front signal
-    if not found_int_front and found_int_unused:
+    elif found_int_unused:
         return "Others", "Unused"
     #---------------------------1099-SA----------------------------------#
     #1099-INT for page 1
@@ -806,7 +774,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     #---------------------------1098-Mortgage----------------------------------#
 #3) fallback form detectors
     if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
-    #if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
+    if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
     if '1099-div' in t: return 'Income', '1099-DIV'
     if 'form 1099-div' in t: return 'Income', '1099-DIV'
     if '1098-t' in t: return 'Expenses', '1098-T'
@@ -924,7 +892,7 @@ def is_name_like(s: str) -> bool:
 def next_valid_line(lines, start_index, junk_phrases=None):
     if junk_phrases is None:
         junk_phrases = [
-            "omb no", 
+            "omb no",
             "control number",
             "payrol",
             "allocated tips",
@@ -955,7 +923,7 @@ def parse_w2(text: str) -> Dict[str, str]:
     emp_name = emp_addr = "N/A"
     bookmark = None
     full_lower = text.lower()
-    
+   
     # 🚨 Hard-coded override for Salesforce
     if re.search(r"\bSALESFORCE[, ]+INC\.?\b", text, flags=re.IGNORECASE):
         emp_name = "SALESFORCE, INC"
@@ -1003,13 +971,13 @@ def parse_w2(text: str) -> Dict[str, str]:
                 bookmark = emp_name
             break
 
-            
+           
     # 🔹 2) Marker block
     marker = (
         "c employer's name, address, and zip code 3 social security wages"
         "c Employer's name, address, and ZIP code "
         "8 Allocated tips 3 Social security wages 4 Social security tax withheld"
-        
+       
     ).lower()
     for i, L in enumerate(lines):
         if marker in L.lower():
@@ -1094,7 +1062,7 @@ from typing import List
 def extract_1099int_bookmark(text: str) -> str:
     """
     Extract a clean payer/institution name for Form 1099-INT.
-    
+   
     Priority:
     1. Known overrides (US Bank, Capital One, Bank of America, etc.)
     2. First ALL-CAPS / title-cased line after 'foreign postal code, and telephone no.'
@@ -1112,54 +1080,36 @@ def extract_1099int_bookmark(text: str) -> str:
         "u.s. bank na": "US Bank NA",
         "capital one": "Capital One NA",
         "bank of america": "Bank of America",
-        "digital federal credit union": "Digital Federal Credit Union",
-        "fifth third bank": "FIFTH THIRD BANK, N.A.",   # ✅ new override
-        "discover bank": "Discover Bank"
+        "digital federal credit union": "Digital Federal Credit Union"
     }
     for key, val in overrides.items():
         if key in text.lower():
             return val
 
-    # --- Step 2: Top-down scan for bank-like names ---
-    for cand in lines:
-        cand_lower = cand.lower()
-        if any(word in cand_lower for word in ["bank", "credit union", "mortgage", "trust", "financial"]):
-            # strip trailing garbage like punctuation
-            return re.sub(r"[^\w\s.&,'-]+$", "", cand).strip()
-        
-    # --- Step 3: Look after payer header (if available) ---
+    # --- Step 2: Look after the postal-code/telephone header ---
     for i, l in enumerate(lower_lines):
-        if ("payer" in l and "information" in l) or ("foreign postal code" in l and "telephone" in l):
+        if "foreign postal code" in l and "telephone" in l:
+            # check next 3 lines for candidate
             for offset in range(1, 4):
                 if i + offset >= len(lines):
                     break
                 cand = lines[i + offset].strip()
                 cand_lower = cand.lower()
 
-                # skip junk
-                bad_tokens = ["payer", "recipient", "federal id", "tin",
-                              "street", "road", "apt", "zip"]
-                if any(bad in cand_lower for bad in bad_tokens):
-                    continue
-                if re.match(r"^\d+[\s.]", cand):  # skip box lines
+                # skip junk lines
+                if not cand or "payer" in cand_lower or "recipient" in cand_lower:
                     continue
 
-                if (re.match(r"^[A-Z][A-Z\s&.,'-]{5,}$", cand) and not re.search(r"\d", cand)) \
-                   or any(word in cand_lower for word in ["bank", "credit union", "mortgage", "trust", "financial"]):
+                # prefer ALL CAPS or Title Case institution names
+                if re.match(r"^[A-Z][A-Z\s&.,'-]{5,}$", cand) or "credit union" in cand_lower or "bank" in cand_lower:
                     return re.sub(r"[^\w\s.&'-]+$", "", cand).strip()
-    # --- Step 4: Global scan again as a last resort ---
+
+    # --- Step 3: Global scan for institution-like names ---
     for cand in lines:
         cand_lower = cand.lower()
-        bad_tokens = ["payer", "recipient", "federal id", "tin",
-                      "street", "road", "apt", "zip"]
-        if any(bad in cand_lower for bad in bad_tokens):
-            continue
-        if re.match(r"^\d+[\s.]", cand):
-            continue
-
-        if any(word in cand_lower for word in ["bank", "credit union", "mortgage", "trust", "financial"]):
-            return re.sub(r"[^\w\s.&'-]+$", "", cand).strip()
-
+        if any(word in cand_lower for word in ["bank", "credit union", "trust", "financial", "federal"]):
+            if not ("payer" in cand_lower or "recipient" in cand_lower):
+                return re.sub(r"[^\w\s.&'-]+$", "", cand).strip()
 
     # --- Step 4: Fallback ---
     return "1099-INT"
@@ -1273,7 +1223,7 @@ def clean_bookmark(name: str) -> str:
 def clean_institution_name(raw: str) -> str:
     """
     Post-process extracted institution name.
-    Keeps the full institution name like 'Optum Bank', 
+    Keeps the full institution name like 'Optum Bank',
     'The Bank of New York Mellon', 'XYZ Trust Company', etc.
     Trims legal suffixes, copyright, FDIC notes, etc.
     """
@@ -1708,7 +1658,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
        if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff'))
        and f != os.path.basename(abs_output)
     )
-    
+   
    # remove any zero‐byte files so PdfReader never sees them
     files = []
     for f in all_files:
@@ -2123,7 +2073,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                         lbl = trustee
                     else:
                         lbl = extract_1098t_bookmark(page_text)
-                
+               
                 # NEW: strip ", N.A" and stop
                 if ", N.A" in lbl:
                     lbl = lbl.replace(", N.A", "")

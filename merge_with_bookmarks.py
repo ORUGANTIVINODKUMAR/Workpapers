@@ -241,8 +241,12 @@ def is_unused_page(text: str) -> bool:
         #1099-Mortgage
         or "for clients with paid mortgage insurance" in norm
         or "you can also contact the" in norm
-        #or "" in norm
-       
+       # or "" in norm
+       #1098-T
+        or "for the latest information" in norm
+        or "such as legislation" in norm
+        #or "" in norm  
+             
         or "may be requested by the mortgagor" in norm
        
         or "you should contact a competent" in norm
@@ -275,36 +279,33 @@ def is_unused_page(text: str) -> bool:
     )
 
 
-def extract_account_number(text: str) -> str:
-    """
-    Extract and normalize the account number or ORIGINAL number from page text.
-    - Handles 'Account Number: ####' format
-    - Handles 'ORIGINAL: ####' format
-    Returns None if nothing found.
-    """
-    #Account Number
-    #2360-9180
-    match = re.search(r"Account\s*Number[:\s]*([\d\-]+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).replace(" ", "").strip()
-    # First try to capture "Account Number:"
-    match = re.search(r"Account Number:\s*([\d\s]+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).replace(" ", "").strip()
+def extract_account_number(text: str, form_type: str = "") -> str | None:
+    lower = text.lower()
 
-    # If not found, try to capture "ORIGINAL:"
-    match = re.search(r"ORIGINAL:\s*([\d\s]+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).replace(" ", "").strip()
-   
-    #Account 697296887
-    match = re.search(r"Account\s+(\d+)", text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-   
+    # 🔹 Skip rules: don't extract account numbers for 1098-T, 1098-Mortgage, W-2, etc.
+    if (
+        (form_type and (form_type.startswith("1098") or form_type in ("W-2","5498-SA")))
+        or "form 1098-t" in lower
+        or "tuition statement" in lower
+        or "institution" in lower and "university" in lower
+        or "qualified tuition" in lower
+        or "form 1098 mortgage" in lower
+        or "mortgage interest" in lower
+    ):
+        return None   # 🚫 Skip account number detection
+
+    # 🔹 Otherwise try account number regex patterns
+    for pat in [
+        r"Account\s*Number[:\s]*([\d\-]+)",
+        r"Account Number:\s*([\d\s]+)",
+        r"ORIGINAL:\s*([\d\s]+)",
+        r"Account\s+(\d+)"
+    ]:
+        match = re.search(pat, text, re.IGNORECASE)
+        if match:
+            return match.group(1).replace(" ", "").strip()
 
     return None
-
 
 # consolidated-1099 forms bookmark
 def has_nonzero_misc(text: str) -> bool:
@@ -603,22 +604,6 @@ def classify_text(text: str) -> Tuple[str, str]:
     "box 13. for a tax-exempt covered security",
     "box 14. shows cusip number",
     "boxes 15-17. state tax withheld",
-    # 1098-T instruction lines
-    "you, or the person who can claim you as a dependent, may be able to claim an education credit",
-    "student’s taxpayer identification number (tin)",
-    "box 1. shows the total payments received by an eligible educational institution",
-    "box 2. reserved for future use",
-    "box 3. reserved for future use",
-    "box 4. shows any adjustment made by an eligible educational institution",
-    "box 5. shows the total of all scholarships or grants",
-    "tip: you may be able to increase the combined value of an education credit",
-    "box 6. shows adjustments to scholarships or grants for a prior year",
-    "box 7. shows whether the amount in box 1 includes amounts",
-    "box 8. shows whether you are considered to be carrying at least one-half",
-    "box 9. shows whether you are considered to be enrolled in a program leading",
-    "box 10. shows the total amount of reimbursements or refunds",
-    "future developments. for the latest information about developments related to form 1098-t",
-    # 1098-Mortgage
     ]
     for pat in instruction_patterns:
         if pat in lower:
@@ -773,12 +758,50 @@ def classify_text(text: str) -> Tuple[str, str]:
         return "Others", "Unused"
 
     #---------------------------1098-Mortgage----------------------------------#
+    
+    t_front = [
+        #"form 1098-t",                  # IRS header
+        "tuition statement",            # title
+        "filer’s name",                 # institution block
+        "student’s tin",                # student ID block
+        "payments received for qualified tuition",  # Box 1
+        "scholarships or grants",       # Box 5
+    ]  
+
+    t_unused = [
+        "you, or the person who can claim you as a dependent, may be able to claim an education credit",
+        "student’s taxpayer identification number (tin)",
+        "box 1. shows the total payments received by an eligible educational institution",
+        "box 2. reserved for future use",
+        "box 3. reserved for future use",
+        "box 4. shows any adjustment made by an eligible educational institution",
+        "box 5. shows the total of all scholarships or grants",
+        "box 6. shows adjustments to scholarships or grants for a prior year",
+        "box 7. shows whether the amount in box 1 includes amounts",
+        "box 8. shows whether you are considered to be carrying at least one-half",
+        "box 9. shows whether you are considered to be enrolled in a program leading",
+        "box 10. shows the total amount of reimbursements or refunds",
+        "future developments. for the latest information about developments related to form 1098-t",
+    ]
+    lower = text.lower()
+    found_t_front = any(pat.lower() in lower for pat in t_front)
+    found_t_unused = any(pat.lower() in lower for pat in t_unused)
+
+    # 🔁 Priority: 1098-T > Unused
+    if found_t_front:
+        return "Expenses", "1098-T"
+    elif found_t_unused:
+        return "Others", "Unused"
+  
+    
+    
+    
 #3) fallback form detectors
     if 'w-2' in t or 'w2' in t: return 'Income', 'W-2'
     if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
     if '1099-div' in t: return 'Income', '1099-DIV'
     if 'form 1099-div' in t: return 'Income', '1099-DIV'
-    if '1098-t' in t: return 'Expenses', '1098-T'
+    #if '1098-t' in t: return 'Expenses', '1098-T'
     if '1099' in t: return 'Income', '1099-Other'
     if 'donation' in t: return 'Expenses', 'Donation'
     return 'Unknown', 'Unused'
@@ -1613,34 +1636,54 @@ def extract_1098t_bookmark(text: str) -> str:
     """
     Extract institution name for 1098-T forms.
 
-    Rule:
-    - Find a line containing BOTH "foreign postal code" and "qualified tuition"
-    - Then take the very next non-empty line as the institution name
-    - Only accept it if it looks like a real institution (contains University/College/etc.)
-    - Otherwise fallback search
+    Rules:
+    1. If any line contains "univ" or "university", return that full line (after cleaning).
+    2. Otherwise: find a line after "foreign postal code ... qualified tuition"
+       and take the next line if it looks like an institution.
+    3. Fallback: scan for College, Institute, Academy, Board of Regents.
+    4. If nothing found, return "1098-T".
     """
+
     import re
     lines = text.splitlines()
+
+    # normalizer to fix OCR junk
+    def normalize_institution(name: str) -> str:
+        name = re.sub(r"[^\w\s.&-]", " ", name)      # remove symbols
+        name = re.sub(r"\s+", " ", name).strip()     # collapse spaces
+
+        # fix OCR variations
+        name = re.sub(r"\bUniv\b", "University", name, flags=re.IGNORECASE)
+        name = re.sub(r"\bNebr\b", "Nebraska", name, flags=re.IGNORECASE)
+        name = re.sub(r"\bTuiti\b", "Tuition", name, flags=re.IGNORECASE)
+        name = re.sub(r"\bTution\b", "Tuition", name, flags=re.IGNORECASE)
+        return name.strip()
+
+    KEYWORDS = r"(University|College|Institute|Academy|Univ|Board of Regents|Tuition|Tuiti|Tution)"
+
+    # 🔹 Rule 1: any line with "univ" or "university"
+    for line in lines:
+        if re.search(r"\b(univ|university)\b", line, flags=re.IGNORECASE):
+            return normalize_institution(line)
+
     lower_lines = [l.lower() for l in lines]
 
+    # 🔹 Rule 2: look for header, then next line
     for i, L in enumerate(lower_lines):
         if "foreign postal code" in L and "qualified tuition" in L:
             if i + 1 < len(lines):
                 cand = lines[i + 1].strip()
-                cand = re.sub(r"\s*expenses.*$", "", cand, flags=re.IGNORECASE)
-                cand = re.sub(r"[^\w\s.&-]", "", cand).strip()
+                if re.search(KEYWORDS, cand, flags=re.IGNORECASE):
+                    return normalize_institution(cand)
 
-                # ✅ Only accept if it's a real institution name
-                if re.search(r"(University|College|Institute|Academy)", cand, flags=re.IGNORECASE):
-                    return cand
-
-    # Fallback: catch any line with University/College/etc.
+    # 🔹 Rule 3: fallback scan for other institution markers
     for line in lines:
-        if re.search(r"(University|College|Institute|Academy)", line, flags=re.IGNORECASE):
-            cand = re.sub(r"\s*expenses.*$", "", line, flags=re.IGNORECASE)
-            return cand.strip()
+        if re.search(KEYWORDS, line, flags=re.IGNORECASE):
+            return normalize_institution(line)
 
+    # 🔹 Rule 4: nothing found
     return "1098-T"
+
 
 def print_pdf_bookmarks(path: str):
     try:
@@ -1845,6 +1888,8 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                    # NEW: {acct: "Issuer Name"}
 
                 tiered = extract_text(path, i)
+                # First classify the page
+                acct_num = extract_account_number(tiered, form_type=ft)
                 acct_num = extract_account_number(tiered)
                 if acct_num:
                     account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
@@ -1852,7 +1897,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     issuer = extract_consolidated_issuer(tiered)
                     if issuer:
                         account_names.setdefault(acct_num, issuer)
-                cat, ft = classify_text(tiered)
+                
                
                 # NEW: log every classification
                 print(
@@ -2111,6 +2156,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
                     if trustee:
                         lbl = trustee
                     else:
+                        page_text = extract_text(path, idx)  # ✅ get text for this page
                         lbl = extract_1098t_bookmark(page_text)
                
                 # NEW: strip ", N.A" and stop

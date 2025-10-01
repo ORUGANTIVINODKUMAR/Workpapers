@@ -220,6 +220,7 @@ def is_unused_page(text: str) -> bool:
 
     return (
         "understanding your form 1099" in norm
+              
         or "year-end messages" in norm
         or "important: if your etrade account transitioned" in norm
         or "please visit etrade.com/tax" in norm
@@ -948,6 +949,17 @@ def parse_w2(text: str) -> Dict[str, str]:
             'employee_address': 'N/A',
             'bookmark': emp_name
         }
+        # 🔹 2) GEORGIA INSTITUTE TECHNOLOGY override
+    if "georgia institute technology" in full_lower or "georgia institute of technology" in full_lower:
+        emp_name = "GEORGIA INSTITUTE TECHNOLOGY"
+        return {
+            'ssn': ssn, 'ein': ein,
+            'employer_name': emp_name,
+            'employer_address': emp_addr,
+            'employee_name': 'N/A',
+            'employee_address': 'N/A',
+            'bookmark': emp_name
+        }
     # 🔹 3) Standard W-2 parsing
     for i, line in enumerate(lines):
         if "allocated tips" in line.lower() and "social security" in line.lower():
@@ -997,6 +1009,15 @@ def parse_w2(text: str) -> Dict[str, str]:
     # 🔹 3) Standard W-2 parsing
     for i, line in enumerate(lines):
         if "employer" in line.lower() and "name" in line.lower():
+            raw = next_valid_line(lines, i + 1)
+            if raw:
+                emp_name = normalize_entity_name(raw)
+                bookmark = emp_name
+            emp_addr = next_valid_line(lines, i + 2)
+            break
+    # 🔹 3.1) Standard W-2 parsing
+    for i, line in enumerate(lines):
+        if "erreroyers" in line.lower() and "name" in line.lower():
             raw = next_valid_line(lines, i + 1)
             if raw:
                 emp_name = normalize_entity_name(raw)
@@ -1751,7 +1772,7 @@ def merge_with_bookmarks(input_dir: str, output_pdf: str):
 
                 print("→ Tesseract OCR:", file=sys.stderr)
                 try:
-                    img = pdf_page_to_image(path, i, dpi=150)  # ✅ use your PyMuPDF helper
+                    img = pdf_page_to_image(path, i, dpi=200)  # ✅ use your PyMuPDF helper
                     extracts['Tesseract'] = pytesseract.image_to_string(img, config="--psm 6") or ""
                     print(extracts['Tesseract'], file=sys.stderr)
                 except Exception as e:

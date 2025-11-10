@@ -168,3 +168,19 @@ mergeBtn.addEventListener('click', async () => {
   }
 });
 
+<<<<<<< HEAD
+=======
+// --- Logout button handler ---
+const logoutBtn = document.getElementById('logout-btn');
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      await fetch('/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    } catch (err) {
+      alert('Logout failed. Please try again.');
+    }
+  });
+}
+
+>>>>>>> 9938b47 (updated code)

@@ -19,6 +19,27 @@
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
+<!-- HEADER -->
+  <header class="upsilon-header d-flex justify-content-between align-items-center px-5 py-3 bg-white shadow-sm">
+    <div class="logo">
+      <h2 class="text-gradient m-0">Upsilon</h2>
+    </div>
+
+    <nav class="nav-links d-none d-md-flex gap-4">
+      <a href="#">Design</a>
+      <a href="#">Product</a>
+      <a href="#">Plans</a>
+      <a href="#">Business</a>
+      <a href="#">Education</a>
+      <a href="#">Help</a>
+    </nav>
+
+    <div class="auth-buttons">
+      <button id="logout-btn" class="btn btn-outline-danger rounded-pill px-3">
+        <i class="bi bi-box-arrow-right me-1"></i> Logout
+      </button>
+    </div>
+                </header>
 
   <!-- tsParticles background -->
   <div id="tsparticles"></div>
@@ -26,6 +47,7 @@
   <!-- Main container -->
   <div class="container py-5">
     <div class="card text-white bg-dark mx-auto" style="max-width: 600px;">
+      
 
       <!-- Header -->
       <div class="card-header border-bottom">
@@ -109,5 +131,6 @@
   <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
   <!-- Your custom JS -->
   <script src="script.js"></script>
+  
 </body>
 </html>

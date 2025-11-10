@@ -1,0 +1,494 @@
+[
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:36:45.841Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Deleted client",
+    "metadata": {
+      "clientId": "client_e568ce"
+    },
+    "timestamp": "2025-11-09T11:36:55.613Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Deleted client",
+    "metadata": {
+      "clientId": "client_738b50"
+    },
+    "timestamp": "2025-11-09T11:36:59.895Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new client",
+    "metadata": {
+      "clientId": "client_0de81d",
+      "tpName": "Sandeep"
+    },
+    "timestamp": "2025-11-09T11:37:13.141Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:37:18.118Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:38:30.560Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:46:40.501Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Created new client",
+    "metadata": {
+      "clientId": "client_9e4ec6",
+      "tpName": "vinod"
+    },
+    "timestamp": "2025-11-09T11:46:52.552Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_9e4ec6",
+      "taskId": "task_4cd4e2"
+    },
+    "timestamp": "2025-11-09T11:46:56.260Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:47:12.969Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:47:18.687Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Deleted client",
+    "metadata": {
+      "clientId": "client_0de81d"
+    },
+    "timestamp": "2025-11-09T11:47:24.003Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new client",
+    "metadata": {
+      "clientId": "client_c6d041",
+      "tpName": "Saiteja"
+    },
+    "timestamp": "2025-11-09T11:47:34.017Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_c6d041",
+      "taskId": "task_c4b3ab"
+    },
+    "timestamp": "2025-11-09T11:47:37.765Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:47:49.733Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:47:55.474Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_9e4ec6"
+    },
+    "timestamp": "2025-11-09T11:47:57.385Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Merged PDFs",
+    "metadata": {
+      "taskId": "task_4cd4e2"
+    },
+    "timestamp": "2025-11-09T11:48:03.414Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:48:29.231Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Merged PDFs",
+    "metadata": {
+      "taskId": "task_c4b3ab"
+    },
+    "timestamp": "2025-11-09T11:48:33.794Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:48:35.334Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_c6d041"
+    },
+    "timestamp": "2025-11-09T11:48:37.229Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:49:04.565Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:49:11.847Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_9e4ec6"
+    },
+    "timestamp": "2025-11-09T11:49:14.286Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_9e4ec6",
+      "taskId": "task_525ccb"
+    },
+    "timestamp": "2025-11-09T11:51:04.459Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Merged PDFs",
+    "metadata": {
+      "taskId": "task_4cd4e2"
+    },
+    "timestamp": "2025-11-09T11:51:33.594Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Merged PDFs",
+    "metadata": {
+      "taskId": "task_525ccb"
+    },
+    "timestamp": "2025-11-09T11:52:13.499Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Merged PDFs",
+    "metadata": {
+      "taskId": "task_c4b3ab"
+    },
+    "timestamp": "2025-11-09T11:52:51.144Z"
+  },
+  {
+    "username": "Vinod@k",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:58:43.402Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T11:58:48.091Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_c6d041"
+    },
+    "timestamp": "2025-11-09T11:58:50.928Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Merged PDFs",
+    "metadata": {
+      "taskId": "task_c4b3ab"
+    },
+    "timestamp": "2025-11-09T12:08:12.405Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T12:12:00.581Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_c6d041"
+    },
+    "timestamp": "2025-11-09T12:12:04.600Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Deleted client",
+    "metadata": {
+      "clientId": "client_c6d041"
+    },
+    "timestamp": "2025-11-09T12:12:12.086Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new client",
+    "metadata": {
+      "clientId": "client_cab239",
+      "tpName": "1"
+    },
+    "timestamp": "2025-11-09T12:12:18.978Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_cab239",
+      "taskId": "task_376b2c"
+    },
+    "timestamp": "2025-11-09T12:12:27.352Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_cab239",
+      "taskId": "task_45c13d"
+    },
+    "timestamp": "2025-11-09T12:12:29.140Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T12:21:53.270Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-09T12:21:56.742Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T12:28:02.894Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-09T12:28:04.771Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_cab239",
+      "taskId": "task_74b1e7"
+    },
+    "timestamp": "2025-11-09T12:28:08.069Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-09T12:35:33.187Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-09T12:35:34.733Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_cab239",
+      "taskId": "task_3a9128"
+    },
+    "timestamp": "2025-11-09T12:35:37.603Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T06:14:27.195Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-10T06:14:29.536Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_cab239",
+      "taskId": "task_f89c5b"
+    },
+    "timestamp": "2025-11-10T06:14:38.806Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T07:02:07.412Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new client",
+    "metadata": {
+      "clientId": "client_9b87e4",
+      "tpName": "Sandeep"
+    },
+    "timestamp": "2025-11-10T07:02:13.671Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_9b87e4",
+      "taskId": "task_4ece31"
+    },
+    "timestamp": "2025-11-10T07:02:15.651Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_9b87e4",
+      "taskId": "task_3ff6b0"
+    },
+    "timestamp": "2025-11-10T07:02:17.952Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T08:57:50.060Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_9b87e4"
+    },
+    "timestamp": "2025-11-10T08:57:52.089Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T11:22:32.744Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-10T11:22:35.405Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T11:31:12.026Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-10T11:31:13.646Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Created new task",
+    "metadata": {
+      "clientId": "client_cab239",
+      "taskId": "task_580b93"
+    },
+    "timestamp": "2025-11-10T11:31:26.085Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T11:46:55.914Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-10T11:47:06.497Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Selected client",
+    "metadata": {
+      "clientId": "client_cab239"
+    },
+    "timestamp": "2025-11-10T11:48:17.487Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged in",
+    "metadata": {},
+    "timestamp": "2025-11-10T12:01:17.419Z"
+  },
+  {
+    "username": "Saiteja",
+    "action": "Logged out",
+    "metadata": {},
+    "timestamp": "2025-11-10T12:01:20.505Z"
+  }
+]

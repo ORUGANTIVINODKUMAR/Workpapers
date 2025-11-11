@@ -1,17 +1,3 @@
-<<<<<<< HEAD
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-=======
-// =============================
-//  Document Merger & OCR Server
-//  with Multi-User Login + Persistent Clients + Activity Logging
-// =============================
-
 const express = require("express");
 const multer = require("multer");
 const cors = require("cors");

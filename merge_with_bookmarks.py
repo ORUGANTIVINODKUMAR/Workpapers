@@ -15,8 +15,16 @@ from pdfminer.high_level import extract_text as pdfminer_extract
 from pdfminer.layout import LAParams
 from PyPDF2 import PdfReader, PdfMerger
 
+import platform
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# ✅ Auto-detect OS and set Tesseract path accordingly
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+else:
+    pytesseract.pytesseract.tesseract_cmd = "tesseract"
+
+
 
 #rom pdf2image import convert_from_path
 import fitz  # PyMuPDF

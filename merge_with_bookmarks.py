@@ -561,12 +561,7 @@ def classify_text(text: str) -> Tuple[str, str]:
         
     ):
         return "Expenses", "Property Tax"
-    # --------------------------- 1042-S --------------------------- #
-        #or "withholding agent" in lower
-        #or "income subject to withholding" in lower
-        #or "jpmorgan chase bank" in lower
-    ):
-        return "Income", "1042-S"    # --------------------------- 1042-S --------------------------- #
+
     # --------------------------- 1095-C --------------------------- #
     if (
         "form 1095-c" in lower

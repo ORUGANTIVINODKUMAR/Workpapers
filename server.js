@@ -1,4 +1,7 @@
-
+// =============================
+//  Document Merger & OCR Server
+//  with Multi-User Login + Persistent Clients + Activity Logging
+// =============================
 
 const express = require("express");
 const multer = require("multer");
@@ -10,12 +13,10 @@ const { v4: uuidv4 } = require("uuid");
 const session = require("express-session");
 const bodyParser = require("body-parser");
 
-
 const app = express();
 
 // Track progress state for frontend
 let mergeProgress = { percent: 0, message: "Idle" };
-
 const PORT = process.env.PORT || 3001;
 
 // =============================
@@ -57,9 +58,25 @@ app.use(
     secret: "super_secret_key_change_this",
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: "lax", secure: false, maxAge: 2 * 60 * 60 * 1000 },
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      maxAge: 2 * 60 * 60 * 1000, // 2 hours
+    },
   })
 );
+
+// =============================
+// Root Redirect
+// =============================
+app.get("/", (req, res) => {
+  if (req.session?.authenticated && req.session?.user) {
+    res.redirect("/client");
+  } else {
+    res.redirect("/login.html");
+  }
+});
 
 // =============================
 // Multi-User Authentication
@@ -100,9 +117,11 @@ function requireAuth(req, res, next) {
 const BASE_UPLOAD_DIR = path.join(__dirname, "uploads");
 const BASE_TASK_DIR = path.join(__dirname, "task_data");
 const BASE_MERGED_DIR = path.join(__dirname, "merged");
+
 [BASE_UPLOAD_DIR, BASE_MERGED_DIR, BASE_TASK_DIR].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
+
 // =============================
 // Client Management (Per User)
 // =============================
@@ -110,15 +129,13 @@ app.get("/client", requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, "public", "client.html"));
 });
 
-// Get clients created by the logged-in user only
 app.get("/clients", requireAuth, (req, res) => {
   const username = req.session.user;
   const allClients = loadClients();
-  const myClients = allClients.filter(c => c.createdBy === username);
+  const myClients = allClients.filter((c) => c.createdBy === username);
   res.json(myClients);
 });
 
-// Create new client and assign to logged-in user
 app.post("/client", requireAuth, (req, res) => {
   const { tp_name } = req.body;
   if (!tp_name) return res.status(400).json({ error: "Taxpayer name required." });
@@ -131,7 +148,7 @@ app.post("/client", requireAuth, (req, res) => {
     id,
     tpName: tp_name,
     createdBy: username,
-    tasks: []
+    tasks: [],
   };
 
   clients.push(newClient);
@@ -142,13 +159,12 @@ app.post("/client", requireAuth, (req, res) => {
   res.json({ success: true, redirect: `/task.html?client=${id}` });
 });
 
-// Select an existing client (must belong to logged-in user)
 app.post("/select-client/:id", requireAuth, (req, res) => {
   const id = req.params.id;
   const username = req.session.user;
 
   const clients = loadClients();
-  const client = clients.find(c => c.id === id && c.createdBy === username);
+  const client = clients.find((c) => c.id === id && c.createdBy === username);
 
   if (!client) {
     return res.status(403).json({ error: "Access denied or client not found." });
@@ -159,14 +175,13 @@ app.post("/select-client/:id", requireAuth, (req, res) => {
   res.json({ success: true, redirect: `/task.html?client=${id}` });
 });
 
-// Delete client (only if owner)
 app.delete("/client/:id", requireAuth, (req, res) => {
   const id = req.params.id;
   const username = req.session.user;
 
   let clients = loadClients();
   const before = clients.length;
-  clients = clients.filter(c => !(c.id === id && c.createdBy === username));
+  clients = clients.filter((c) => !(c.id === id && c.createdBy === username));
 
   saveClients(clients);
   logActivity(username, "Deleted client", { clientId: id });
@@ -174,33 +189,33 @@ app.delete("/client/:id", requireAuth, (req, res) => {
   res.json({ success: clients.length < before });
 });
 
-
 // =============================
-// Task Management per Client
+// Task Management
 // =============================
 app.get("/tasks", requireAuth, (req, res) => {
-  if (!req.session.currentClient) return res.status(400).json({ error: "No client selected" });
+  if (!req.session.currentClient)
+    return res.status(400).json({ error: "No client selected" });
 
   const clients = loadClients();
   const client = clients.find((c) => c.id === req.session.currentClient.id);
   if (!client) return res.status(404).json({ error: "Client not found" });
 
-  client.tasks.forEach(task => {
-    const mergedPath = path.join(BASE_TASK_DIR, task.id, 'merged_output.pdf');
-    task.merged = fs.existsSync(mergedPath); // ✅ Only show Download if file exists
+  client.tasks.forEach((task) => {
+    const mergedPath = path.join(BASE_TASK_DIR, task.id, "merged_output.pdf");
+    task.merged = fs.existsSync(mergedPath);
     if (task.merged && task.status !== "completed") {
       task.status = "completed";
     } else if (!task.merged && task.status === "completed") {
-      task.status = "new"; // If file was deleted, reset status
+      task.status = "new";
     }
   });
-
 
   res.json(client.tasks);
 });
 
 app.post("/tasks", requireAuth, (req, res) => {
-  if (!req.session.currentClient) return res.status(400).json({ error: "No client selected" });
+  if (!req.session.currentClient)
+    return res.status(400).json({ error: "No client selected" });
 
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Task name required" });
@@ -218,33 +233,30 @@ app.post("/tasks", requireAuth, (req, res) => {
   clients[index].tasks.push(newTask);
   saveClients(clients);
 
-  logActivity(req.session.user, "Created new task", { clientId: clients[index].id, taskId });
+  logActivity(req.session.user, "Created new task", {
+    clientId: clients[index].id,
+    taskId,
+  });
 
   res.json(newTask);
 });
 
-// =============================
-// Delete a Task (per client)
-// =============================
 app.delete("/tasks/:taskId", requireAuth, (req, res) => {
   const { taskId } = req.params;
   const currentClient = req.session.currentClient;
 
-  if (!currentClient) {
+  if (!currentClient)
     return res.status(400).json({ error: "No client selected." });
-  }
 
   let clients = loadClients();
-  const cIndex = clients.findIndex(c => c.id === currentClient.id);
+  const cIndex = clients.findIndex((c) => c.id === currentClient.id);
   if (cIndex === -1) return res.status(404).json({ error: "Client not found." });
 
   const beforeCount = clients[cIndex].tasks.length;
-  clients[cIndex].tasks = clients[cIndex].tasks.filter(t => t.id !== taskId);
+  clients[cIndex].tasks = clients[cIndex].tasks.filter((t) => t.id !== taskId);
 
-  // Save updated clients list
   saveClients(clients);
 
-  // Delete associated task folder (optional but good cleanup)
   const taskFolder = path.join(BASE_TASK_DIR, taskId);
   if (fs.existsSync(taskFolder)) {
     try {
@@ -262,9 +274,6 @@ app.delete("/tasks/:taskId", requireAuth, (req, res) => {
     return res.status(404).json({ error: "Task not found." });
   }
 });
-
-
-
 
 // =============================
 // Merge Route
@@ -287,21 +296,23 @@ app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  const interval = setInterval(() => res.write(`data: ${JSON.stringify(mergeProgress)}\n\n`), 1000);
+  const interval = setInterval(
+    () => res.write(`data: ${JSON.stringify(mergeProgress)}\n\n`),
+    1000
+  );
   req.on("close", () => clearInterval(interval));
 });
 
-app.post('/merge', requireAuth, upload.array('pdfs'), async (req, res) => {
+app.post("/merge", requireAuth, upload.array("pdfs"), async (req, res) => {
   const { task_id } = req.body;
-  if (!task_id) return res.status(400).json({ error: 'Missing task_id' });
+  if (!task_id) return res.status(400).json({ error: "Missing task_id" });
   if (!req.files || req.files.length === 0)
-    return res.status(400).json({ error: 'No files uploaded' });
+    return res.status(400).json({ error: "No files uploaded" });
 
   const taskPath = path.join(BASE_TASK_DIR, task_id);
-  const inputDir = path.join(taskPath, 'input_pdfs');
-  const outputPath = path.join(taskPath, 'merged_output.pdf');
+  const inputDir = path.join(taskPath, "input_pdfs");
+  const outputPath = path.join(taskPath, "merged_output.pdf");
 
-  // ✅ Remove any existing merged file (start clean)
   if (fs.existsSync(outputPath)) {
     try {
       fs.unlinkSync(outputPath);
@@ -311,49 +322,33 @@ app.post('/merge', requireAuth, upload.array('pdfs'), async (req, res) => {
     }
   }
 
-  const tp_ssn = req.session.tp_ssn || '';
-  const sp_ssn = req.session.sp_ssn || '';
-
-  // ✅ Mark task as in progress
-  let clients = loadClients();
-  const currentClient = req.session.currentClient;
-  const clientIndex = clients.findIndex(c => c.id === currentClient?.id);
-  if (clientIndex !== -1) {
-    const tIndex = clients[clientIndex].tasks.findIndex(t => t.id === task_id);
-    if (tIndex !== -1) {
-      clients[clientIndex].tasks[tIndex].status = "in-progress";
-      clients[clientIndex].tasks[tIndex].merged = false;
-      saveClients(clients);
-    }
-  }
-
   mergeProgress = { percent: 10, message: "Starting merge..." };
   console.log(`🧩 Merging PDFs for task ${task_id}`);
 
   try {
     const pythonPath = process.platform === "win32" ? "python" : "python3";
-    const args = ["merge_with_bookmarks.py", inputDir, outputPath, tp_ssn, sp_ssn];
+    const args = ["merge_with_bookmarks.py", inputDir, outputPath];
     const python = spawn(pythonPath, args);
 
-    python.stdout.on("data", data => {
+    python.stdout.on("data", (data) => {
       console.log(`[PYTHON] ${data.toString().trim()}`);
       mergeProgress = { percent: 60, message: data.toString().trim() };
     });
 
-    python.stderr.on("data", data => {
+    python.stderr.on("data", (data) => {
       console.error(`[PYTHON ERR] ${data}`);
     });
 
-    python.on("close", code => {
+    python.on("close", (code) => {
       if (code === 0) {
         console.log(`✅ Merge completed for ${task_id}`);
         mergeProgress = { percent: 100, message: "Merge complete!" };
 
-        // ✅ Update task status to completed + re-save client
-        clients = loadClients();
-        const cIndex = clients.findIndex(c => c.id === currentClient?.id);
+        const clients = loadClients();
+        const currentClient = req.session.currentClient;
+        const cIndex = clients.findIndex((c) => c.id === currentClient?.id);
         if (cIndex !== -1) {
-          const tIndex = clients[cIndex].tasks.findIndex(t => t.id === task_id);
+          const tIndex = clients[cIndex].tasks.findIndex((t) => t.id === task_id);
           if (tIndex !== -1) {
             clients[cIndex].tasks[tIndex].merged = true;
             clients[cIndex].tasks[tIndex].status = "completed";
@@ -373,7 +368,6 @@ app.post('/merge', requireAuth, upload.array('pdfs'), async (req, res) => {
     res.status(500).json({ error: "Internal error during merge" });
   }
 });
-
 
 // =============================
 // File Download
@@ -397,5 +391,5 @@ app.get("/activity-logs", requireAuth, (req, res) => {
 // Start Server
 // =============================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}/login.html`);
 });

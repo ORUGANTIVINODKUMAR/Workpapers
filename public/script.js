@@ -168,8 +168,6 @@ mergeBtn.addEventListener('click', async () => {
   }
 });
 
-<<<<<<< HEAD
-=======
 // --- Logout button handler ---
 const logoutBtn = document.getElementById('logout-btn');
 if (logoutBtn) {
@@ -183,4 +181,3 @@ if (logoutBtn) {
   });
 }
 
->>>>>>> 9938b47 (updated code)

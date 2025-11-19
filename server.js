@@ -90,7 +90,6 @@ app.post("/login", (req, res) => {
     req.session.authenticated = true;
     req.session.user = username;
     req.session.tasks = [];
-    console.log(`✅ User '${username}' logged in.`);
     logActivity(username, "Logged in");
     return res.json({ success: true, redirect: "/client" });
   }
@@ -137,8 +136,11 @@ app.get("/clients", requireAuth, (req, res) => {
 });
 
 app.post("/client", requireAuth, (req, res) => {
-  const { tp_name } = req.body;
-  if (!tp_name) return res.status(400).json({ error: "Taxpayer name required." });
+  const { tp_name, sp_name, tp_ssn, sp_ssn } = req.body;
+
+  if (!tp_name || !tp_ssn) {
+    return res.status(400).json({ error: "Taxpayer name & SSN required." });
+  }
 
   const clients = loadClients();
   const id = `client_${uuidv4().slice(0, 6)}`;
@@ -147,15 +149,18 @@ app.post("/client", requireAuth, (req, res) => {
   const newClient = {
     id,
     tpName: tp_name,
+    tpSSN: tp_ssn,
+    spName: sp_name || "",
+    spSSN: sp_ssn || "",
     createdBy: username,
-    tasks: [],
+    tasks: []
   };
 
   clients.push(newClient);
   saveClients(clients);
-  logActivity(username, "Created new client", { clientId: id, tpName: tp_name });
 
   req.session.currentClient = newClient;
+
   res.json({ success: true, redirect: `/task.html?client=${id}` });
 });
 
@@ -171,7 +176,6 @@ app.post("/select-client/:id", requireAuth, (req, res) => {
   }
 
   req.session.currentClient = client;
-  logActivity(username, "Selected client", { clientId: id });
   res.json({ success: true, redirect: `/task.html?client=${id}` });
 });
 
@@ -184,7 +188,6 @@ app.delete("/client/:id", requireAuth, (req, res) => {
   clients = clients.filter((c) => !(c.id === id && c.createdBy === username));
 
   saveClients(clients);
-  logActivity(username, "Deleted client", { clientId: id });
 
   res.json({ success: clients.length < before });
 });
@@ -200,18 +203,32 @@ app.get("/tasks", requireAuth, (req, res) => {
   const client = clients.find((c) => c.id === req.session.currentClient.id);
   if (!client) return res.status(404).json({ error: "Client not found" });
 
+
+  // -------------------------
+  //   FIXED STATUS LOGIC
+  // -------------------------
   client.tasks.forEach((task) => {
     const mergedPath = path.join(BASE_TASK_DIR, task.id, "merged_output.pdf");
     task.merged = fs.existsSync(mergedPath);
-    if (task.merged && task.status !== "completed") {
+
+    if (task.merged) {
       task.status = "completed";
-    } else if (!task.merged && task.status === "completed") {
+    }
+    else if (task.status === "in-progress") {
+      task.status = "in-progress";
+    }
+    else if (task.status === "failed") {
+      task.status = "failed";
+    }
+    else {
       task.status = "new";
     }
   });
 
+
   res.json(client.tasks);
 });
+
 
 app.post("/tasks", requireAuth, (req, res) => {
   if (!req.session.currentClient)
@@ -228,15 +245,9 @@ app.post("/tasks", requireAuth, (req, res) => {
 
   const clients = loadClients();
   const index = clients.findIndex((c) => c.id === req.session.currentClient.id);
-  if (index === -1) return res.status(404).json({ error: "Client not found" });
-
   clients[index].tasks.push(newTask);
-  saveClients(clients);
 
-  logActivity(req.session.user, "Created new task", {
-    clientId: clients[index].id,
-    taskId,
-  });
+  saveClients(clients);
 
   res.json(newTask);
 });
@@ -245,12 +256,8 @@ app.delete("/tasks/:taskId", requireAuth, (req, res) => {
   const { taskId } = req.params;
   const currentClient = req.session.currentClient;
 
-  if (!currentClient)
-    return res.status(400).json({ error: "No client selected." });
-
   let clients = loadClients();
   const cIndex = clients.findIndex((c) => c.id === currentClient.id);
-  if (cIndex === -1) return res.status(404).json({ error: "Client not found." });
 
   const beforeCount = clients[cIndex].tasks.length;
   clients[cIndex].tasks = clients[cIndex].tasks.filter((t) => t.id !== taskId);
@@ -259,20 +266,10 @@ app.delete("/tasks/:taskId", requireAuth, (req, res) => {
 
   const taskFolder = path.join(BASE_TASK_DIR, taskId);
   if (fs.existsSync(taskFolder)) {
-    try {
-      fs.rmSync(taskFolder, { recursive: true, force: true });
-      console.log(`🗑 Deleted folder for task: ${taskId}`);
-    } catch (err) {
-      console.error(`⚠️ Could not delete folder for ${taskId}: ${err.message}`);
-    }
+    fs.rmSync(taskFolder, { recursive: true, force: true });
   }
 
-  if (clients[cIndex].tasks.length < beforeCount) {
-    console.log(`✅ Task deleted: ${taskId}`);
-    return res.json({ success: true });
-  } else {
-    return res.status(404).json({ error: "Task not found." });
-  }
+  res.json({ success: clients[cIndex].tasks.length < beforeCount });
 });
 
 // =============================
@@ -313,25 +310,37 @@ app.post("/merge", requireAuth, upload.array("pdfs"), async (req, res) => {
   const inputDir = path.join(taskPath, "input_pdfs");
   const outputPath = path.join(taskPath, "merged_output.pdf");
 
-  if (fs.existsSync(outputPath)) {
-    try {
-      fs.unlinkSync(outputPath);
-      console.log(`🧹 Removed old merged file for ${task_id}`);
-    } catch (err) {
-      console.error(`⚠️ Could not delete old merged file: ${err.message}`);
-    }
-  }
+  if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
 
   mergeProgress = { percent: 10, message: "Starting merge..." };
-  console.log(`🧩 Merging PDFs for task ${task_id}`);
+
+  // 🟡 Mark task as in-progress (save to clients.json)
+  const clients = loadClients();
+  const currentClient = req.session.currentClient;
+  const cIndex = clients.findIndex((c) => c.id === currentClient.id);
+  const tIndex = clients[cIndex].tasks.findIndex((t) => t.id === task_id);
+
+  if (tIndex !== -1) {
+    clients[cIndex].tasks[tIndex].status = "in-progress";
+    saveClients(clients);
+  }
+
+  // Pass client metadata to python
+  const meta = JSON.stringify({
+    tpName: currentClient.tpName,
+    tpSSN: currentClient.tpSSN,
+    spName: currentClient.spName,
+    spSSN: currentClient.spSSN,
+    taskId: task_id
+  });
 
   try {
     const pythonPath = process.platform === "win32" ? "python" : "python3";
-    const args = ["merge_with_bookmarks.py", inputDir, outputPath];
+    const args = ["merge_with_bookmarks.py", inputDir, outputPath, meta];
+
     const python = spawn(pythonPath, args);
 
     python.stdout.on("data", (data) => {
-      console.log(`[PYTHON] ${data.toString().trim()}`);
       mergeProgress = { percent: 60, message: data.toString().trim() };
     });
 
@@ -341,30 +350,27 @@ app.post("/merge", requireAuth, upload.array("pdfs"), async (req, res) => {
 
     python.on("close", (code) => {
       if (code === 0) {
-        console.log(`✅ Merge completed for ${task_id}`);
         mergeProgress = { percent: 100, message: "Merge complete!" };
 
+        // Save completed
         const clients = loadClients();
-        const currentClient = req.session.currentClient;
-        const cIndex = clients.findIndex((c) => c.id === currentClient?.id);
-        if (cIndex !== -1) {
-          const tIndex = clients[cIndex].tasks.findIndex((t) => t.id === task_id);
-          if (tIndex !== -1) {
-            clients[cIndex].tasks[tIndex].merged = true;
-            clients[cIndex].tasks[tIndex].status = "completed";
-            clients[cIndex].tasks[tIndex].date = new Date().toISOString();
-            saveClients(clients);
-          }
+        const cIndex = clients.findIndex((c) => c.id === currentClient.id);
+        const tIndex = clients[cIndex].tasks.findIndex((t) => t.id === task_id);
+
+        if (tIndex !== -1) {
+          clients[cIndex].tasks[tIndex].merged = true;
+          clients[cIndex].tasks[tIndex].status = "completed";
+          clients[cIndex].tasks[tIndex].date = new Date().toISOString();
+          saveClients(clients);
         }
 
-        res.json({ success: true, task_id });
-      } else {
-        console.error(`❌ Merge failed for ${task_id}`);
-        res.status(500).json({ error: "Merge failed" });
+        return res.json({ success: true, task_id });
       }
+
+      return res.status(500).json({ error: "Merge failed" });
     });
+
   } catch (err) {
-    console.error("Merge Error:", err);
     res.status(500).json({ error: "Internal error during merge" });
   }
 });
@@ -375,16 +381,9 @@ app.post("/merge", requireAuth, upload.array("pdfs"), async (req, res) => {
 app.get("/download/:taskId", requireAuth, (req, res) => {
   const taskId = req.params.taskId;
   const mergedPath = path.join(BASE_TASK_DIR, taskId, "merged_output.pdf");
-  if (!fs.existsSync(mergedPath)) return res.status(404).send("Merged file not found.");
+  if (!fs.existsSync(mergedPath))
+    return res.status(404).send("Merged file not found.");
   res.download(mergedPath, `${taskId}_merged.pdf`);
-});
-
-// =============================
-// Admin Activity View (optional)
-// =============================
-app.get("/activity-logs", requireAuth, (req, res) => {
-  const logs = JSON.parse(fs.readFileSync(ACTIVITY_FILE, "utf-8"));
-  res.json(logs);
 });
 
 // =============================

@@ -88,16 +88,15 @@ footer a:hover {
   <div>
     <button onclick="window.location.href='/client'" class="btn btn-outline-secondary rounded-pill px-3 me-2">
       ← Back to Clients
-</button>
+    </button>
     <button id="logout-btn" class="btn btn-outline-danger rounded-pill px-3">Logout</button>
   </div>
 </header>
 
-
 <!-- MAIN TASK SECTION -->
 <section class="container py-5">
   <div class="card p-4 mx-auto" style="max-width:750px;">
-    <h4 class="text-center mb-4" 
+    <h4 class="text-center mb-4"
         style="background:var(--accent-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">
       Manage Merge Tasks
     </h4>
@@ -144,6 +143,7 @@ footer a:hover {
 async function loadTasks() {
   try {
     const res = await fetch("/tasks", { credentials: "include" });
+
     if (!res.ok) {
       if (res.status === 401) {
         alert("⚠️ Session expired. Please log in again.");
@@ -161,20 +161,25 @@ async function loadTasks() {
       const li = document.createElement("li");
       li.className = "list-group-item d-flex justify-content-between align-items-center";
 
-      // Determine status badge
+      // Normalize status to avoid Unicode hyphen issues
+      const normalized = (t.status || "").toLowerCase().replace(/[^a-z]/g, "");
+
       let badge = "";
-      switch (t.status) {
-        case "in-progress":
-          badge = `<span class="badge bg-warning text-dark"><i class='bi bi-hourglass-split me-1'></i>In Progress</span>`;
-          break;
-        case "completed":
-          badge = `<span class="badge bg-success"><i class='bi bi-check-circle me-1'></i>Completed</span>`;
-          break;
-        case "failed":
-          badge = `<span class="badge bg-danger"><i class='bi bi-x-circle me-1'></i>Failed</span>`;
-          break;
-        default:
-          badge = `<span class="badge bg-secondary"><i class='bi bi-clock me-1'></i>Not Started</span>`;
+
+      if (normalized === "inprogress") {
+        badge = `<span class="badge bg-warning text-dark"><i class='bi bi-hourglass-split me-1'></i>In Process</span>`;
+      }
+      else if (normalized === "processing") {
+        badge = `<span class="badge bg-warning text-dark"><i class='bi bi-hourglass-split me-1'></i>In Process</span>`;
+      }
+      else if (normalized === "completed") {
+        badge = `<span class="badge bg-success"><i class='bi bi-check-circle me-1'></i>Completed</span>`;
+      }
+      else if (normalized === "failed") {
+        badge = `<span class="badge bg-danger"><i class='bi bi-x-circle me-1'></i>Failed</span>`;
+      }
+      else {
+        badge = `<span class="badge bg-secondary"><i class='bi bi-clock me-1'></i>Not Started</span>`;
       }
 
       li.innerHTML = `
@@ -189,9 +194,9 @@ async function loadTasks() {
         </div>
       `;
 
-
       list.appendChild(li);
     });
+
   } catch (err) {
     console.error("Task load error:", err);
   }
@@ -220,9 +225,10 @@ document.getElementById("task-form").addEventListener("submit", async (e) => {
   }
 });
 
-// Load tasks initially & auto-refresh every 2 seconds
+// Auto-refresh every 2 seconds
 loadTasks();
 setInterval(loadTasks, 2000);
+
 // Handle Task Deletion
 document.addEventListener("click", async (e) => {
   if (e.target.classList.contains("delete-task") || e.target.closest(".delete-task")) {
@@ -240,7 +246,7 @@ document.addEventListener("click", async (e) => {
       const data = await res.json();
       if (data.success) {
         alert("✅ Task deleted successfully!");
-        loadTasks(); // refresh list
+        loadTasks();
       } else {
         alert("❌ Failed to delete task: " + (data.error || "Unknown error"));
       }
@@ -250,7 +256,6 @@ document.addEventListener("click", async (e) => {
     }
   }
 });
-
 </script>
 
 <script src="/logout.js"></script>

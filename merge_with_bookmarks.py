@@ -307,10 +307,32 @@ def is_unused_page(text: str) -> bool:
         or "for clients with paid mortgage insurance" in norm
         or "you can also contact the" in norm
         #or "" in norm
-        
+        #fidelity
+        or "the amount of tax-exempt interest paid to you must be reported on the applicable" in norm 
+        or "form 1040, u.s. individual income tax return" in norm
+        or "the amount of tax-exempt alternative minimum tax" in norm
+        or "interest paid to you must be taken into account in computing the" in norm
+        #Td Ameritrade
+        or "The tax character of the distribution has been allocated based on information provided by the security issuer" in norm
+        or "the tax character of the distribution has been allocated" in norm
+        or "tax lot closed is a specified lot" in norm
+        or "allocated based on information provided by the security issuer" in norm  
+        or "importanttaxreturndocumentenclosed" in norm
+        #Apex clearing
+        or "please verify your personal information for accuracy and contact us" in norm
+        or "if you hold these securities or another security that is" in norm
+        or "information that may be helpful to you for filing your tax return" in norm
+       #merrill
+        #or "" in norm
+        or "to view additional tax resources available online" in norm
+        or "merrill is only required to revise 1099 tax reporting statements when" in norm
+        or "amount shown on line 1b of form 1099 div as a qualified dividend indicates" in norm       
+        or "california residents be advised that payers are required to report" in norm
+        or "this page was intentionally left blank" in norm
+        or "this page was intentionally left blank" in norm
        #w2
-       or "for the latest information about developments related to form" in norm
-       or "you and any qualifying children must have valid social security numbers" in norm
+        or "for the latest information about developments related to form" in norm
+        or "you and any qualifying children must have valid social security numbers" in norm
        
        #w2
         or "may be requested by the mortgagor" in norm
@@ -347,10 +369,6 @@ def is_unused_page(text: str) -> bool:
 
 import re
 
-
-
-import re
-
 def extract_account_number(text: str, page_number: int = None) -> str:
     """
     Extract and normalize the account number or ORIGINAL number from page text.
@@ -371,6 +389,26 @@ def extract_account_number(text: str, page_number: int = None) -> str:
         r"Account\s*No\.?[:\s]*([\dA-Za-z\-]+)",   # ✅ added: "Account No." or "Account No"s
         r"ORIGINAL:\s*([\dA-Za-z\s]+)",
         r"Account\s+(?!WITH\b)(?=[A-Za-z0-9\-]*\d)([A-Za-z0-9\-]+)",
+        r"Account\s*No\.?\s*[:\-]?\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
+        r"AccountNo\.?\s*[:\-]?\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
+        r"Account\s*No\.?[^\n\r]*\n\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
+        r"AccountNo\.?[^\n\r]*\n\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
+        r"AccountNo\.?\s*([A-Za-z0-9]{4,})",
+        r"Account\s*No\s+([A-Za-z0-9]{4,})",
+        r"Account\s+([A-Za-z0-9]{1,4}\s+[0-9]{3,})",
+        r"Account\s*No\.?\s*([A-Za-z0-9]+[\u2010\u2011\u2012\u2013\u2014\-][A-Za-z0-9\-]+)",
+        # Case 1: Same line → "Account No. 76W-59336"
+        r"Account\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]{4,})",
+        # Case 2: Next line → "Account No.\n76W-59336"
+        r"Account\s*No\.?[^\n\r]*\n\s*([A-Za-z0-9\-]{4,})",
+        # Merrill-specific labels
+        r"(?:Merrill(?:\s+Lynch|\s+Edge)?)?\s*Account\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]{4,})",
+        # OCR distortions → Accoumt / Accouni / Accourt
+        r"Accou[nmrt]+\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]{4,})",
+        # "Customer Account Number"
+        r"Customer\s*Account\s*Number[:\s]*([A-Za-z0-9\s\-]{4,})",
+        # Plain "Account XXXXX"
+        r"Account\s+([A-Za-z0-9]{4,})",
 
     ]
 
@@ -418,34 +456,6 @@ def extract_account_number(text: str, page_number: int = None) -> str:
 
     return detected_account
 
-
-def extract_account_number(text: str, form_type: str = "") -> str | None:
-    lower = text.lower()
-
-    # 🔹 Skip rules: don't extract account numbers for 1098-T, 1098-Mortgage, W-2, etc.
-    if (
-        (form_type and (form_type.startswith("1098") or form_type in ("W-2","5498-SA")))
-        or "form 1098-t" in lower
-        or "tuition statement" in lower
-        or "institution" in lower and "university" in lower
-        or "qualified tuition" in lower
-        or "form 1098 mortgage" in lower
-        or "mortgage interest" in lower
-    ):
-        return None   # 🚫 Skip account number detection
-
-    # 🔹 Otherwise try account number regex patterns
-    for pat in [
-        r"Account\s*Number[:\s]*([\d\-]+)",
-        r"Account Number:\s*([\d\s]+)",
-        r"ORIGINAL:\s*([\d\s]+)",
-        r"Account\s+(\d+)"
-    ]:
-        match = re.search(pat, text, re.IGNORECASE)
-        if match:
-            return match.group(1).replace(" ", "").strip()
-
-    return None
 
 # consolidated-1099 forms bookmark
 def has_nonzero_misc(text: str) -> bool:
@@ -1043,7 +1053,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     #1099-INT for page 1
     div_front = [
         "form 1099-div",
-        "dividends and distributions",
+        #"dividends and distributions",
         "1a total ordinary dividends",
         "1b qualified dividends distributions",
         "2a Total capital gain distr",

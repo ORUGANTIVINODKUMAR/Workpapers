@@ -18,12 +18,12 @@ from PyPDF2 import PdfReader, PdfMerger
 import platform
 import pytesseract
 
+
 # ✅ Auto-detect OS and set Tesseract path accordingly
 if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 else:
     pytesseract.pytesseract.tesseract_cmd = "tesseract"
-
 
 
 #rom pdf2image import convert_from_path
@@ -313,20 +313,6 @@ def is_unused_page(text: str) -> bool:
        or "you and any qualifying children must have valid social security numbers" in norm
        
        #w2
-       #Consolidted-1099
-       #fidelity
-       or "the amount of tax-exempt interest paid to you must be reported on the applicable" in norm 
-       or "form 1040, u.s. individual income tax return" in norm
-       or "the amount of tax-exempt alternative minimum tax" in norm
-       or "interest paid to you must be taken into account in computing the" in norm
-       #Td Ameritrade
-       or "The tax character of the distribution has been allocated based on information provided by the security issuer" in norm
-       or "the tax character of the distribution has been allocated" in norm
-       or "tax lot closed is a specified lot" in norm
-       or "allocated based on information provided by the security issuer" in norm  
-            
-
-       #consolidated-1099
         or "may be requested by the mortgagor" in norm
        
         or "you should contact a competent" in norm
@@ -360,184 +346,106 @@ def is_unused_page(text: str) -> bool:
 
 
 import re
+
+
+
 import re
-import re
 
-def extract_account_number(text: str, form_type: str = "", page_number: int = None) -> str | None:
+def extract_account_number(text: str, page_number: int = None) -> str:
     """
-    FULL unified account number extractor.
-    Supports:
-    - Fidelity 1099
-    - UBS
-    - Merrill (all formats, including 'Account No.' next-line)
-    - Apex Clearing
-    - Standard formats
-    - Skip rules for 1098, W-2, mortgage, tuition
+    Extract and normalize the account number or ORIGINAL number from page text.
+    Handles:
+    - 'Account Number: ####'
+    - 'ORIGINAL: ####'
+    - 'Account ####'
+    - 'Apex Clearing' followed by account number (next line or same line)
+    Automatically consolidates if both detections match.
+    Prints the detected account number per page for debugging.
+    Returns None if not found.
     """
 
-    lower = text.lower()
-
-    # ---------------------------------------------------------------------
-    # 0️⃣ SKIP RULES
-    # ---------------------------------------------------------------------
-    if (
-        (form_type and (form_type.startswith("1098") or form_type in ("W-2", "5498-SA")))
-        or "form 1098-t" in lower
-        or "tuition statement" in lower
-        or ("institution" in lower and "university" in lower)
-        or "qualified tuition" in lower
-        or "form 1098 mortgage" in lower
-        or "mortgage interest" in lower
-    ):
-        return None
-
-
-    # ---------------------------------------------------------------------
-    # 1️⃣ FIDELITY 1099 (OCR SAFE)
-    # ---------------------------------------------------------------------
-    fidelity_patterns = [
-        r"Account\s*No\.?\s*[:\-]?\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
-        r"AccountNo\.?\s*[:\-]?\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
-        r"Account\s*No\.?[^\n\r]*\n\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
-        r"AccountNo\.?[^\n\r]*\n\s*([A-Za-z0-9]{1,3}[A-Za-z0-9\-]{3,})",
-        r"AccountNo\.?\s*([A-Za-z0-9]{4,})",
-        r"Account\s*No\s+([A-Za-z0-9]{4,})",
-        r"Account\s*No\.?\s*([A-Za-z0-9]+[\u2010\u2011\u2012\u2013\u2014\-][A-Za-z0-9\-]+)",
-    ]
-
-    fidelity_account = None
-    for p in fidelity_patterns:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            fidelity_account = m.group(1).strip()
-            break
-
-    if fidelity_account:
-        fidelity_account = re.sub(r"^2Z", "Z", fidelity_account, flags=re.IGNORECASE)
-        fidelity_account = re.sub(r"^2?24-", "Z24-", fidelity_account, flags=re.IGNORECASE)
-        fidelity_account = fidelity_account.replace("–", "-").replace("—", "-")
-
-
-    # ---------------------------------------------------------------------
-    # 2️⃣ UBS (Account W5 34244)
-    # ---------------------------------------------------------------------
-    ubs_account = None
-    m = re.search(r"Account\s+([A-Za-z0-9]{1,4}\s+[0-9]{3,})", text, re.IGNORECASE)
-    if m:
-        ubs_account = m.group(1).strip().replace(" ", "")
-
-
-    # ---------------------------------------------------------------------
-    # 3️⃣ MERRILL LYNCH / MERRILL EDGE (including your screenshot)
-    # ---------------------------------------------------------------------
-    merrill_account = None
-    merrill_patterns = [
-
-        # Case 1: Same line → "Account No. 76W-59336"
-        r"Account\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]{4,})",
-
-        # Case 2: Next line → "Account No.\n76W-59336"
-        r"Account\s*No\.?[^\n\r]*\n\s*([A-Za-z0-9\-]{4,})",
-
-        # Merrill-specific labels
-        r"(?:Merrill(?:\s+Lynch|\s+Edge)?)?\s*Account\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]{4,})",
-
-        # OCR distortions → Accoumt / Accouni / Accourt
-        r"Accou[nmrt]+\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]{4,})",
-
-        # "Customer Account Number"
-        r"Customer\s*Account\s*Number[:\s]*([A-Za-z0-9\s\-]{4,})",
-
-        # Plain "Account XXXXX"
-        r"Account\s+([A-Za-z0-9]{4,})",
-    ]
-
-    for p in merrill_patterns:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            merrill_account = m.group(1).strip()
-            break
-
-    if merrill_account:
-        merrill_account = merrill_account.replace(" ", "").replace("-", "").upper()
-
-
-    # ---------------------------------------------------------------------
-    # 4️⃣ STANDARD
-    # ---------------------------------------------------------------------
-    std_account = None
+    # --- 1️⃣ Standard patterns ---
     std_patterns = [
         r"Account\s*Number[:\s]*([\dA-Za-z\-]+)",
         r"Account Number:\s*([\dA-Za-z\s]+)",
-        r"Account\s*No\.?[:\s]*([\dA-Za-z\-]+)",
+        r"Account\s*No\.?[:\s]*([\dA-Za-z\-]+)",   # ✅ added: "Account No." or "Account No"s
         r"ORIGINAL:\s*([\dA-Za-z\s]+)",
         r"Account\s+(?!WITH\b)(?=[A-Za-z0-9\-]*\d)([A-Za-z0-9\-]+)",
+
     ]
 
+    std_account = None
     for p in std_patterns:
         m = re.search(p, text, re.IGNORECASE)
         if m:
             std_account = m.group(1).replace(" ", "").strip()
             break
 
+    # --- 2️⃣ Apex Clearing: account on next line ---
+    apex_match = re.search(
+        r"Apex\s+Clearing[^\n\r]*\n\s*([A-Z0-9\-]{4,})",
+        text,
+        re.IGNORECASE
+    )
+    apex_nextline = apex_match.group(1).strip() if apex_match else None
 
-    # ---------------------------------------------------------------------
-    # 5️⃣ APEX CLEARING
-    # ---------------------------------------------------------------------
-    apex_next = None
-    apex_inline = None
+    # --- 3️⃣ Apex Clearing: account on same line ---
+    apex_inline = re.search(
+        r"Apex\s+Clearing[^\n\r]{0,60}?([A-Z0-9\-]{4,})",
+        text,
+        re.IGNORECASE
+    )
+    apex_inline_acc = apex_inline.group(1).strip() if apex_inline else None
 
-    m = re.search(r"Apex\s+Clearing[^\n\r]*\n\s*([A-Z0-9\-]{4,})", text, re.IGNORECASE)
-    apex_next = m.group(1).strip() if m else None
-
-    m = re.search(r"Apex\s+Clearing[^\n\r]{0,60}?([A-Z0-9\-]{4,})", text, re.IGNORECASE)
-    apex_inline = m.group(1).strip() if m else None
-
-
-    # ---------------------------------------------------------------------
-    # 6️⃣ COMBINE WITH PRIORITY (Fidelity > UBS > Merrill > Standard > Apex)
-    # ---------------------------------------------------------------------
-    found = {
-        fidelity_account,
-        ubs_account,
-        merrill_account,
-        std_account,
-        apex_next,
-        apex_inline,
-    }
-    found = {a for a in found if a}
+    # --- 4️⃣ Combine and normalize ---
+    found = {std_account, apex_nextline, apex_inline_acc}
+    found = {a for a in found if a}  # remove None
 
     detected_account = None
-
     if found:
-        # If all match after normalization
         normalized = {a.replace("-", "").upper() for a in found}
         if len(normalized) == 1:
             detected_account = list(found)[0]
         else:
-            detected_account = (
-                fidelity_account
-                or ubs_account
-                or merrill_account
-                or std_account
-                or apex_next
-                or apex_inline
-            )
+            detected_account = std_account or apex_nextline or apex_inline_acc
 
-
-    # ---------------------------------------------------------------------
-    # 7️⃣ DEBUG PRINT
-    # ---------------------------------------------------------------------
+    # --- 5️⃣ Debug output ---
     if page_number is not None:
-        print(
-            f"{'✅' if detected_account else '⚠️'} Page {page_number} → "
-            f"Account detected: {detected_account}"
-            if detected_account else
-            f"⚠️ Page {page_number} → No account found"
-        )
+        if detected_account:
+            print(f"✅ Page {page_number} → Account detected: {detected_account}")
+        else:
+            print(f"⚠️ Page {page_number} → No account found")
 
     return detected_account
 
+
+def extract_account_number(text: str, form_type: str = "") -> str | None:
+    lower = text.lower()
+
+    # 🔹 Skip rules: don't extract account numbers for 1098-T, 1098-Mortgage, W-2, etc.
+    if (
+        (form_type and (form_type.startswith("1098") or form_type in ("W-2","5498-SA")))
+        or "form 1098-t" in lower
+        or "tuition statement" in lower
+        or "institution" in lower and "university" in lower
+        or "qualified tuition" in lower
+        or "form 1098 mortgage" in lower
+        or "mortgage interest" in lower
+    ):
+        return None   # 🚫 Skip account number detection
+
+    # 🔹 Otherwise try account number regex patterns
+    for pat in [
+        r"Account\s*Number[:\s]*([\d\-]+)",
+        r"Account Number:\s*([\d\s]+)",
+        r"ORIGINAL:\s*([\d\s]+)",
+        r"Account\s+(\d+)"
+    ]:
+        match = re.search(pat, text, re.IGNORECASE)
+        if match:
+            return match.group(1).replace(" ", "").strip()
+
+    return None
 
 # consolidated-1099 forms bookmark
 def has_nonzero_misc(text: str) -> bool:
@@ -829,7 +737,11 @@ def classify_text(text: str) -> Tuple[str, str]:
     lower = text.lower()
       # Detect W-2 pages by their header phrases
     t = re.sub(r"\s+", " ", text.lower()).strip()
-    
+    # --- Detect Schedule K-1 (Form 1065) ---
+    if "schedule k-1" in t or "form 1065" in t:
+        return "Income", "K-1"
+    if "statement a" in t and "qbi" in t:
+        return "Income", "K-1"
 
     #Property Tax
     if (
@@ -1130,12 +1042,16 @@ def classify_text(text: str) -> Tuple[str, str]:
         #---------------------------1099-DIV----------------------------------#
     #1099-INT for page 1
     div_front = [
-        "1a total ordinary dividends",
-        "1b Qualified dividends Distributions",
         "form 1099-div",
-        "2a total capital gain diste",
-        "2b unrecap. sec",
-        "2c section 1202 gain"
+        "dividends and distributions",
+        "1a total ordinary dividends",
+        "1b qualified dividends distributions",
+        "2a Total capital gain distr",
+        "specified private activity bond interest dividends",
+        "qualified dividends",
+        "total capital gain distr",
+        "section 1202 gain",
+        "section 1250 gain",
     ]
 
     div_unused = [
@@ -1827,235 +1743,7 @@ def extract_1099div_bookmark(text: str) -> str:
         "morgan stanley holdings": "Morgan Stanley Domestic Holdings, Inc",
    
     }
-    # 1099-DIV Issuer Overrides Dictionary
-    OVERRIDES = {
-        "fundrise income real estate fund": "Fundrise Income Real Estate Fund, LLC",
-        "fundrise income fund": "Fundrise Income Fund, LLC",
-        # Morgan Stanley (new)
-        "morgan stanley domestic holdings": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan stanley domestic holding": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan stanley holdings inc": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan stanley holdings": "Morgan Stanley Domestic Holdings, Inc",
-        # Brokerages
-        "charles schwab": "Charles Schwab & Co., Inc.",
-        "fidelity investments": "Fidelity Investments",
-        "vanguard": "Vanguard Group, Inc.",
-        "td ameritrade": "TD Ameritrade, Inc.",
-        "etrade": "E*TRADE Financial Corp.",
-        "robinhood": "Robinhood Markets, Inc.",
-        "webull": "Webull Financial LLC",
-        "merrill edge": "Merrill Edge / Bank of America Corporation",
-        "jpmorgan investments": "J.P. Morgan Securities LLC",
-        "wells fargo advisors": "Wells Fargo Advisors, LLC",
-        "edward jones": "Edward Jones",
-        "raymond james": "Raymond James Financial, Inc.",
-        "interactive brokers": "Interactive Brokers LLC",
-        "sofi securities": "SoFi Securities LLC",
-        "m1 finance": "M1 Finance LLC",
-        # Mutual Funds
-        "t rowe price": "T. Rowe Price Associates, Inc.",
-        "american funds": "American Funds / Capital Group",
-        "blackrock funds": "BlackRock, Inc.",
-        "franklin templeton": "Franklin Templeton Investments",
-        "invesco": "Invesco Ltd.",
-        # ETFs
-        "ishares": "BlackRock iShares",
-        "spdr": "State Street SPDR ETFs",
-        "ark invest": "ARK Investment Management LLC",
-        "first trust": "First Trust Advisors LP",
-        # REITs
-        "realty income": "Realty Income Corporation",
-        "prologis": "Prologis, Inc.",
-        "american tower": "American Tower Corporation",
-        "digital realty": "Digital Realty Trust, Inc.",
-        # CEF
-        "nuveen": "Nuveen Investments",
-        "pimco": "PIMCO",
-        "eton vance": "Eaton Vance Corp.",
-        # BDCs
-        "ares capital": "Ares Capital Corporation",
-        "main street capital": "Main Street Capital Corporation",
-        # ADR issuers
-        "nestle adr": "Nestlé S.A.",
-        "novartis adr": "Novartis AG",
-        "royal dutch shell": "Shell plc",
-        "bp adr": "BP plc",
-        # Massive expansion of issuers (300+ entries)
-        "apex clearing": "Apex Clearing Corporation",
-        "clear street": "Clear Street LLC",
-        "drivewealth": "DriveWealth LLC",
-        "tradestation": "TradeStation Securities, Inc.",
-        "tastytrade": "Tastytrade, Inc.",
-        "rb investments": "RBC Wealth Management",
-        "baird": "Robert W. Baird & Co., Inc.",
-        "oppenheimer": "Oppenheimer & Co., Inc.",
-        "mufg securities": "MUFG Securities Americas Inc.",
-        "hsbc securities": "HSBC Securities (USA) Inc.",
-        "citi personal wealth": "Citigroup Global Markets Inc.",
-        "truist securities": "Truist Securities, Inc.",
-        "scotia capital": "Scotia Capital (USA) Inc.",
-        # Mutual funds continued
-        "sei funds": "SEI Investments Management Corp.",
-        "american century": "American Century Investments",
-        "virtu funds": "Virtus Investment Partners",
-        "harbor funds": "Harbor Capital Advisors, Inc.",
-        "calvert funds": "Calvert Research and Management",
-        "thrivent funds": "Thrivent Mutual Funds",
-        "john hancock funds": "John Hancock Investment Management",
-        "guggenheim funds": "Guggenheim Investments",
-        "mfs funds": "MFS Investment Management",
-        "aegon funds": "Aegon Asset Management",
-        "artisan funds": "Artisan Partners Funds",
-        "alger funds": "Alger Funds",
-        "matthews asia": "Matthews International Capital Management",
-        # ETFs continued
-        "proshares": "ProShares ETFs",
-        "direxion": "Direxion ETFs",
-        "kraneshares": "KraneShares ETFs",
-        "cambria": "Cambria Investment Management",
-        "roundhill": "Roundhill Investments",
-        "defiance": "Defiance ETFs",
-        "bitwise": "Bitwise Asset Management",
-        "simplify": "Simplify Asset Management",
-        "pacer etfs": "Pacer ETFs",
-        "uscf": "United States Commodity Funds",
-        "sprott": "Sprott Asset Management",
-        "valkyrie": "Valkyrie Funds",
-        # REITs continued
-        "blackstone reit": "Blackstone Real Estate Income Trust",
-        "brookfield property": "Brookfield Property Partners",
-        "invitation homes": "Invitation Homes Inc.",
-        "equity residential": "Equity Residential",
-        "sl green": "SL Green Realty Corp.",
-        "vici properties": "VICI Properties Inc.",
-        "wp carey": "W. P. Carey Inc.",
-        "kimco realty": "Kimco Realty Corporation",
-        "boston properties": "Boston Properties, Inc.",
-        "omega healthcare": "Omega Healthcare Investors, Inc.",
-        # BDCs continued
-        "owl rock capital": "Owl Rock Capital Corporation",
-        "fs kkr": "FS KKR Capital Corp.",
-        "goldman sachs bdc": "Goldman Sachs BDC, Inc.",
-        "bain capital bdc": "Bain Capital Specialty Finance, Inc.",
-        # ADR continued
-        "toyota adr": "Toyota Motor Corporation",
-        "sony adr": "Sony Group Corporation",
-        "astra zeneca adr": "AstraZeneca PLC",
-        "unilever adr": "Unilever PLC",
-        "infosys adr": "Infosys Limited",
-        # CEF continued
-        "blackrock cef": "BlackRock Closed-End Funds",
-        "john hancock cef": "John Hancock Closed-End Funds",
-        "reaves utility": "Reaves Utility Income Fund",
-        "tortoise energy": "Tortoise Energy Infrastructure Corp.",
-        # Alt investment platforms continued
-        "streitwise": "Streitwise REIT",
-        "arrived homes": "Arrived Homes LLC",
-        "acretrader": "AcreTrader, Inc.",
-        "farmtogether": "FarmTogether, Inc.",
-        # Additional issuers (150+)
-        "ameriprise": "Ameriprise Financial Services, LLC",
-        "janus henderson": "Janus Henderson Investors",
-        "putnam": "Putnam Investments",
-        "lord abbett": "Lord Abbett & Co. LLC",
-        "nuveen reit": "Nuveen Real Estate",
-        "pimco income fund": "PIMCO Income Fund",
-        "diamonds trust": "SPDR Dow Jones Industrial Average ETF Trust",
-        "vanguard total market": "Vanguard Total Stock Market ETF",
-        "charles river": "Charles River Laboratories Intl.",
-        # Fuzzy OCR variants
-        "charls schwab": "Charles Schwab & Co., Inc.",
-        "charles schab": "Charles Schwab & Co., Inc.",
-        "schawb": "Charles Schwab & Co., Inc.",
-        "vdnguard": "Vanguard Group, Inc.",
-        "vanguad": "Vanguard Group, Inc.",
-        "vanguared": "Vanguard Group, Inc.",
-        "fideliity": "Fidelity Investments",
-        "fidelyti": "Fidelity Investments",
-        "morgn stanley": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan stnaley": "Morgan Stanley Domestic Holdings, Inc",
-        "t row prce": "T. Rowe Price Associates, Inc.",
-        "americn funds": "American Funds / Capital Group",
-        "black rok": "BlackRock, Inc.",
-        # More fuzzy ETF variants
-        "ishars": "BlackRock iShares",
-        "ishare": "BlackRock iShares",
-        "spdrs": "State Street SPDR ETFs",
-        "sprd": "State Street SPDR ETFs",
-        # Fuzzy REIT variants
-        "realty icome": "Realty Income Corporation",
-        "realy income": "Realty Income Corporation",
-        "prologi": "Prologis, Inc.",
-        "amercan tower": "American Tower Corporation",
-        # Additional fuzzy variants (200+)
-        "charls schwb": "Charles Schwab & Co., Inc.",
-        "charls swhab": "Charles Schwab & Co., Inc.",
-        "chales schwab": "Charles Schwab & Co., Inc.",
-        "charies schwab": "Charles Schwab & Co., Inc.",
-        "charle schwab": "Charles Schwab & Co., Inc.",
-        "schawb co": "Charles Schwab & Co., Inc.",
-        "schwab inc": "Charles Schwab & Co., Inc.",
-        "schawb inc": "Charles Schwab & Co., Inc.",    
-        "fidelt investments": "Fidelity Investments",
-        "fidelt inv": "Fidelity Investments",
-        "fideliti inv": "Fidelity Investments",
-        "fidelyty": "Fidelity Investments",
-        "fedility": "Fidelity Investments",
-        "fidlity": "Fidelity Investments",
 
-        "vangard": "Vanguard Group, Inc.",
-        "vnguard": "Vanguard Group, Inc.",
-        "vangrd": "Vanguard Group, Inc.",
-        "van guard": "Vanguard Group, Inc.",
-        "vanguad grp": "Vanguard Group, Inc.",
-
-        "morgan stanely": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan stnaley": "Morgan Stanley Domestic Holdings, Inc",
-        "m stanley": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan staley": "Morgan Stanley Domestic Holdings, Inc",
-        "morgan stnley": "Morgan Stanley Domestic Holdings, Inc",
-
-        "americn fnds": "American Funds / Capital Group",
-        "amercan fnds": "American Funds / Capital Group",
-        "amer funds": "American Funds / Capital Group",
-        "am funds": "American Funds / Capital Group",
-
-        "black rok inc": "BlackRock, Inc.",
-        "blackrcok": "BlackRock, Inc.",
-        "blckrock": "BlackRock, Inc.",
-        "black rock": "BlackRock, Inc.",
-
-        "ishrs etf": "BlackRock iShares",
-        "ishar etf": "BlackRock iShares",
-        "ishers": "BlackRock iShares",
-        "ishre": "BlackRock iShares",
-
-        "spdr etf": "State Street SPDR ETFs",
-        "sprd etf": "State Street SPDR ETFs",
-        "spdrs tr": "State Street SPDR ETFs",
-
-        "realty incom": "Realty Income Corporation",
-        "realty icm": "Realty Income Corporation",
-        "realy incom": "Realty Income Corporation",
-
-        "prologi reit": "Prologis, Inc.",
-        "prologis inc": "Prologis, Inc.",
-        "prologus": "Prologis, Inc.",
-
-        "amer tower": "American Tower Corporation",
-        "amercn tower": "American Tower Corporation",
-        "american towr": "American Tower Corporation",
-
-        "nestle sa adr": "Nestlé S.A.",
-        "nestle adr": "Nestlé S.A.",
-        "nestl adr": "Nestlé S.A.",
-
-        "novartis ad": "Novartis AG",
-        "novartis g": "Novartis AG",
-
-        # Additional entries will be added below
-    }
-    
     for key, val in OVERRIDES.items():
         if key in normalized_text:
             return val  # ✅ immediate return on match
@@ -6190,16 +5878,39 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                    # NEW: {acct: "Issuer Name"}
 
                 tiered = extract_text(path, i)
-                acct_num = extract_account_number(tiered, form_type=ft)
-                acct_num = extract_account_number(tiered)
+                acctnum = extract_account_number(tiered)
+                lowertext = tiered.lower()
+
                 # NEW: acct + Issuer Name
-                if acct_num:
-                    account_pages.setdefault(acct_num, []).append((path, i, "Consolidated-1099"))
-                # NEW: capture issuer name for this account if present
-                    issuer = extract_consolidated_issuer(tiered)
-                    if issuer:
-                        account_names.setdefault(acct_num, issuer)
-                
+                if acctnum:
+                    # --- Only add to Consolidated-1099 if it's truly a 1099 form ---
+                    if '1099' in lowertext and not re.search(r'1098-t', lowertext, re.IGNORECASE):
+                        # Check if this account already exists
+                        if acctnum not in account_pages:  # ✅ FIXED: account_pages (with underscore)
+                            # FIRST occurrence - add the full entry
+                            account_pages[acctnum] = [(path, i, 'Consolidated-1099')]
+
+                        # Capture issuer name if present
+                            issuer = extract_consolidated_issuer(tiered)
+                            if issuer:
+                                account_names[acctnum] = issuer  # ✅ FIXED: account_names (with underscore)
+            
+                            print(f"DEBUG: {os.path.basename(path)} p{i+1} => NEW Consolidated-1099 (acct={acctnum})", file=sys.stderr)
+                        else:
+                # SUBSEQUENT pages with same account - just track them
+                            account_pages[acctnum].append((path, i, 'Consolidated-1099'))
+                            print(f"DEBUG: {os.path.basename(path)} p{i+1} => Added to EXISTING Consolidated-1099 (acct={acctnum})", file=sys.stderr)
+
+
+
+
+# Always classify after account checks
+                cat, ft = classify_text(tiered)
+                # 🚫 Skip per-page bookmark creation for K-1 pages (will be grouped later)
+                if cat == "Income" and ft == "K-1":
+                    income.append((path, i, ft))
+                    continue
+
                
                 # NEW: log every classification
                 print(
@@ -6208,7 +5919,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     f"snippet='{tiered[:150].strip().replace(chr(80),' ')}…'",
                     file=sys.stderr
                 )
-                
+
                 entry = (path, i, ft)
                 if cat == 'Income':
                     income.append(entry)
@@ -6257,7 +5968,44 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
     # --- Schedule K-1 (Form 1065) grouping ---
     # --- Schedule K-1 (Form 1065) grouping ---
 # --- Schedule K-1 (Form 1065) grouping ---
-    
+    k1_groups = []
+    current_group = None
+
+    for idx, entry in enumerate(income):
+        path, page_idx, form_type = entry
+        page_text = extract_text(path, page_idx).lower()
+
+        if "schedule k-1" in page_text or "form 1065" in page_text:
+          # 
+            #ein_match = re.search(r"e[\sI1l]*n[\s:]*\d{2}\s*[-–]?\s*\d{7}", page_text, re.IGNORECASE)
+            # --- Improved EIN / entity extraction and cleanup ---
+            ein_match = re.search(r"e[\sI1l]*n[\s:]*\d{2}\s*[-–]?\s*\d{7}", page_text, re.IGNORECASE)
+            if ein_match:
+                ein = re.sub(r"\s+", "", ein_match.group(0).upper()).replace("EIN", "").strip()
+            else:
+                ein = "Unknown-EIN"
+
+            entity_match = re.search(r"([A-Z][A-Za-z0-9&.,'\-\s]{3,60}(?:LLC|LP|LLP))",
+                                    page_text, re.IGNORECASE)
+            if entity_match:
+                entity = entity_match.group(1)
+                # Clean punctuation / duplicates / extra spaces
+                entity = re.sub(r"[^A-Za-z0-9&.,'\-\s]", "", entity)
+                entity = re.sub(r"\s+", " ", entity).strip()
+            else:
+                entity = "Unknown Entity"
+
+        #
+            if current_group:
+                k1_groups.append(current_group)
+            # 👇 This line must be indented exactly one level inside the “if” block
+            current_group = {"entity": entity, "ein": ein, "entries": [entry]}
+
+        elif current_group:
+            current_group["entries"].append(entry)
+
+    if current_group:
+        k1_groups.append(current_group)
 
 
 
@@ -6325,6 +6073,26 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
         root = merger.add_outline_item('Income', page_num)
         groups = group_by_type(income)
         for form, grp in sorted(groups.items(), key=lambda kv: get_form_priority(kv[0], 'Income')):
+                # --- Add Schedule K-1 (Form 1065) hierarchy ---
+            # --- Add Schedule K-1 (Form 1065) hierarchy once ---
+            if k1_groups:
+                if "k1_root" not in locals():   # 🧹 ensure single branch
+                    k1_root = merger.add_outline_item("K-1", page_num, parent=root)
+                    form1065_node = merger.add_outline_item("Form 1065", page_num, parent=k1_root)
+
+                for group in k1_groups:
+                    label = f"{group['entity']} – (EIN: {group['ein']})"
+                    # Normalize label text
+                    label = re.sub(r"EIN:\s*EIN", "EIN:", label)
+                    label = re.sub(r"\s{2,}", " ", label).strip()
+
+                    entity_node = merger.add_outline_item(label, page_num, parent=form1065_node)
+                    first_entry = group["entries"][0]
+                    append_and_bookmark(first_entry, entity_node, "", with_bookmark=False)
+                    for entry in group["entries"][1:]:
+                        append_and_bookmark(entry, entity_node, "", with_bookmark=False)
+
+
             # Skip creating form bookmarks if all pages are already under Consolidated-1099
             filtered_grp = [e for e in grp if (e[0], e[1]) not in consolidated_pages]
             if not filtered_grp:
@@ -6341,79 +6109,57 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
                     issuer = account_names.get(acct)
                     issuer = alias_issuer(issuer) if issuer else None
-                    forms_label = issuer or f"Account {acct}"
-                    forms_node = merger.add_outline_item(forms_label, page_num, parent=cons_root)
+                    base_label = issuer or f"Account {acct}"
 
+        # ------------------------------------------------------------------
+        #  COLLECT ALL REAL PAGES FOR THIS ACCOUNT (GUARANTEED TO WORK)
+        # ------------------------------------------------------------------
                     real_entries = consolidated_payload.get(key, [])
+                    owner = None
 
-        # (optional context labels — does NOT skip appends)
-             
+                    for rp in real_entries:
+                        rp_path, rp_idx, _ = rp
+                        txt = extract_text(rp_path, rp_idx)
+                        who = detect_ssn_owner(txt, tp_ssn, sp_ssn)
+                        if who:
+                            owner = who
+                            break
 
-        # ALWAYS append the real pages
+        # Build final account label
+                    if owner:
+                        account_label = f"{base_label} – {owner}"
+                    else:
+                        account_label = base_label
+
+                    # Create the account bookmark
+                    account_node = merger.add_outline_item(account_label, page_num, parent=cons_root)
+
+        # ------------------------------------------------------------------
+        #  ADD ALL PAGES BELOW THIS ACCOUNT
+        # ------------------------------------------------------------------
                     for real_entry in real_entries:
                         page_text = extract_text(real_entry[0], real_entry[1])
+
+            # Skip unused pages
                         if is_unused_page(page_text):
-                            print(f"[DROP?] {os.path.basename(real_entry[0])} page {real_entry[1]+1} "
-                                    f"marked as UNUSED", file=sys.stderr)
                             others.append((real_entry[0], real_entry[1], "Unused"))
-                            #append_and_bookmark(real_entry, forms_node, "Unused")
                             continue
 
-    # 1️⃣ First, check strong classifier
+            # High-confidence detection
                         form_type = classify_div_int(page_text)
 
-                        if form_type == "1099-DIV":
-                            append_and_bookmark(real_entry, forms_node, "1099-DIV Description")
+                        if form_type:
+                            append_and_bookmark(real_entry, account_node, form_type, owner_override=None)
+                            continue
 
-        # 2️⃣ Also check for other forms on same page
-                            extra_forms = [ft for ft in (classify_text_multi(page_text) or [])
-                                           if ft != "1099-DIV"]
-                            for ft in extra_forms:
-                                merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-
-                        elif form_type == "1099-INT":
-                            if has_nonzero_int(page_text):
-                                append_and_bookmark(real_entry, forms_node, "1099-INT Description")
-                            else:
-        # Still append the page, but give it a neutral label
-                                append_and_bookmark(real_entry, forms_node, "1099-INT (all zero)")
-                                print(f"[NOTE] {os.path.basename(real_entry[0])} page {real_entry[1]+1} "
-                                  f"→ 1099-INT detected but all zero; kept page with neutral bookmark", file=sys.stderr)
-
-                        # 2️⃣ Also check for other forms on same page
-                            extra_forms = [ft for ft in (classify_text_multi(page_text) or [])
-                                           if ft != "1099-INT"]
-                            for ft in extra_forms:
-                                merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-
+                        # Multi-form fallback
+                        form_matches = classify_text_multi(page_text)
+                        if form_matches:
+                            append_and_bookmark(real_entry, account_node, form_matches[0])
                         else:
-        # 3️⃣ Fallback: pure multi-form logic
-                            form_matches = classify_text_multi(page_text)
-
-                            title = None
-                            extra_forms = []
-
-                            if form_matches:
-    # Special rule: drop 1099-INT if all zero
-                                if "1099-INT" in form_matches and not has_nonzero_int(page_text):
-                                    form_matches = [f for f in form_matches if f != "1099-INT"]
-
-                                if form_matches:
-                                    title = form_matches[0]
-                                    extra_forms = form_matches[1:]
-
-# Append once, with or without bookmark
-                            if title:
-                                append_and_bookmark(real_entry, forms_node, title)
-                                for ft in extra_forms:
-                                    merger.add_outline_item(ft, page_num - 1, parent=forms_node)
-                            else:
-    # Only zero INT → keep page, no bookmark
-                                append_and_bookmark(real_entry, forms_node, "", with_bookmark=False)
+                            append_and_bookmark(real_entry, account_node, "", with_bookmark=False)
 
                 continue
-  # done with this form; go to next
-            #Normal Forms
   # <<< KEEP THIS
 
   # done with this form; go to next

@@ -5978,45 +5978,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
     # --- Schedule K-1 (Form 1065) grouping ---
     # --- Schedule K-1 (Form 1065) grouping ---
 # --- Schedule K-1 (Form 1065) grouping ---
-    k1_groups = []
-    current_group = None
-
-    for idx, entry in enumerate(income):
-        path, page_idx, form_type = entry
-        page_text = extract_text(path, page_idx).lower()
-
-        if "schedule k-1" in page_text or "form 1065" in page_text:
-          # 
-            #ein_match = re.search(r"e[\sI1l]*n[\s:]*\d{2}\s*[-–]?\s*\d{7}", page_text, re.IGNORECASE)
-            # --- Improved EIN / entity extraction and cleanup ---
-            ein_match = re.search(r"e[\sI1l]*n[\s:]*\d{2}\s*[-–]?\s*\d{7}", page_text, re.IGNORECASE)
-            if ein_match:
-                ein = re.sub(r"\s+", "", ein_match.group(0).upper()).replace("EIN", "").strip()
-            else:
-                ein = "Unknown-EIN"
-
-            entity_match = re.search(r"([A-Z][A-Za-z0-9&.,'\-\s]{3,60}(?:LLC|LP|LLP))",
-                                    page_text, re.IGNORECASE)
-            if entity_match:
-                entity = entity_match.group(1)
-                # Clean punctuation / duplicates / extra spaces
-                entity = re.sub(r"[^A-Za-z0-9&.,'\-\s]", "", entity)
-                entity = re.sub(r"\s+", " ", entity).strip()
-            else:
-                entity = "Unknown Entity"
-
-        #
-            if current_group:
-                k1_groups.append(current_group)
-            # 👇 This line must be indented exactly one level inside the “if” block
-            current_group = {"entity": entity, "ein": ein, "entries": [entry]}
-
-        elif current_group:
-            current_group["entries"].append(entry)
-
-    if current_group:
-        k1_groups.append(current_group)
-
+    
 
 
     # merge & bookmarks
@@ -6085,22 +6047,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
         for form, grp in sorted(groups.items(), key=lambda kv: get_form_priority(kv[0], 'Income')):
                 # --- Add Schedule K-1 (Form 1065) hierarchy ---
             # --- Add Schedule K-1 (Form 1065) hierarchy once ---
-            if k1_groups:
-                if "k1_root" not in locals():   # 🧹 ensure single branch
-                    k1_root = merger.add_outline_item("K-1", page_num, parent=root)
-                    form1065_node = merger.add_outline_item("Form 1065", page_num, parent=k1_root)
-
-                for group in k1_groups:
-                    label = f"{group['entity']} – (EIN: {group['ein']})"
-                    # Normalize label text
-                    label = re.sub(r"EIN:\s*EIN", "EIN:", label)
-                    label = re.sub(r"\s{2,}", " ", label).strip()
-
-                    entity_node = merger.add_outline_item(label, page_num, parent=form1065_node)
-                    first_entry = group["entries"][0]
-                    append_and_bookmark(first_entry, entity_node, "", with_bookmark=False)
-                    for entry in group["entries"][1:]:
-                        append_and_bookmark(entry, entity_node, "", with_bookmark=False)
+            
 
 
             # Skip creating form bookmarks if all pages are already under Consolidated-1099

@@ -19,11 +19,9 @@ import platform
 import pytesseract
 
 
-# ✅ Auto-detect OS and set Tesseract path accordingly
-if platform.system() == "Windows":
-    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-else:
-    pytesseract.pytesseract.tesseract_cmd = "tesseract"
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\Vinod Kumar\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+#rom pdf2image import convert_from_path
 
 
 #rom pdf2image import convert_from_path
@@ -200,17 +198,24 @@ def preprocess_old_safe(img: Image.Image) -> Image.Image:
         img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
 
     return img
+import concurrent.futures
+import pytesseract
+import sys
+import traceback
+from PyPDF2 import PdfReader
+
 
 def extract_text(path: str, page_index: int) -> str:
     text = ""
-    # OCR fallback
-    if len(text.strip()) < OCR_MIN_CHARS:
+
+    # ----------------------------
+    # PARALLEL EXECUTION
+    # ----------------------------
+    def ocr_job():
         try:
-        # 🔹 Use only 300 DPI for sharper OCR
             dpi = 300
             img = pdf_page_to_image(path, page_index, dpi=300)
 
-# NEW safe preprocessing
             img = preprocess_old_safe(img)
 
             t_ocr = pytesseract.image_to_string(
@@ -219,36 +224,58 @@ def extract_text(path: str, page_index: int) -> str:
                 config="--oem 3 --psm 6 -c preserve_interword_spaces=1"
             )
 
-
             print(f"[OCR dpi={dpi}]\n{t_ocr}", file=sys.stderr)
-
-            if len(t_ocr.strip()) > len(text):
-                text = t_ocr
+            return t_ocr.strip()
 
         except Exception:
             traceback.print_exc()
+            return ""
 
-    # PDFMiner
-    try:
-        t1 = pdfminer_extract(path, page_numbers=[page_index], laparams=PDFMINER_LA_PARAMS) or ""
-        t1 = t1.strip()
-        print(f"[PDFMiner full] {len(t1)} chars\n{t1}", file=sys.stderr)
-        if len(t1) > len(text.strip()):
-            text = t1
-    except Exception:
-        traceback.print_exc()
+    def pdfminer_job():
+        try:
+            t1 = pdfminer_extract(
+                path,
+                page_numbers=[page_index],
+                laparams=PDFMINER_LA_PARAMS
+            ) or ""
+            t1 = t1.strip()
+            print(f"[PDFMiner full] {len(t1)} chars\n{t1}", file=sys.stderr)
+            return t1
+        except Exception:
+            traceback.print_exc()
+            return ""
 
+    # ------------------------------------
+    # Run OCR + PDFMiner simultaneously
+    # ------------------------------------
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_ocr = executor.submit(ocr_job)
+        future_pdfminer = executor.submit(pdfminer_job)
+
+        ocr_text = future_ocr.result()
+        miner_text = future_pdfminer.result()
+
+    # Best pick: prefer PDFMiner, fallback to OCR
+    if len(miner_text) > len(text):
+        text = miner_text
+    if len(text.strip()) < OCR_MIN_CHARS and len(ocr_text) > len(text):
+        text = ocr_text
+
+    # ----------------------------
     # PyPDF2 fallback
+    # ----------------------------
     if len(text.strip()) < OCR_MIN_CHARS:
         try:
             reader = PdfReader(path)
             t2 = reader.pages[page_index].extract_text() or ""
             print(f"[PyPDF2 full]\n{t2}", file=sys.stderr)
-            if len(t2.strip()) > len(text): text = t2
+            if len(t2.strip()) > len(text):
+                text = t2
         except Exception:
             traceback.print_exc()
-   
+
     return text
+
 
 
 # ── OCR for images

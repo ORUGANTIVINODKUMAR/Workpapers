@@ -7022,6 +7022,10 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     or "fidelity" in text.lower()
                     or "supplemental information" in text.lower()
                     or "tax reporting statement" in text.lower()
+                    or "the portion of capital gain distributions is subject to applicable rate" in text.lower()
+                   #SUMMARY OF PROCEEDS, GAINS & LOSSES, ADJUSTMENTS AND WITHHOLDING
+                    or "summary of proceeds, gains & losses, adjustments and withholding" in text.lower()
+                    or "Changes to dividend tax classifications processed after your original tax form is issued for" in text.lower()
                     or "proceeds from broker and barter exchange transactions" in text.lower()
                     or "transactions for which basis is not reported to the irs and term is unknown" in text.lower()
                     or "details of 1099-int transactions" in text.lower()

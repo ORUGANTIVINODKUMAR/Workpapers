@@ -334,7 +334,10 @@ import fitz
 
 def pre_classify_skip_page(text: str) -> bool:
     t = text.lower()
-
+    if "THIS PAGE WAS INTENTIONALLY LEFT BLANK" in t:
+        return True
+    if "this page was intentionally left blank" in t:
+        return True
     # 529-plan
     if "municipal securities and results will vary with market conditions" in t:
         return True
@@ -349,6 +352,54 @@ def pre_classify_skip_page(text: str) -> bool:
         and "the plan is administered by the state treasurer" in t 
         and "$" not in t):
         return True
+    #Consolidated-1099
+    #merrill
+    if (
+        "we would like you to note the following" in t
+        and "important items for your attention" in t
+        and "merrill is only required to revise 1099" in t
+        and "to view additional tax resources available" in t
+        and "this information applies to foreign persons and entities" in t
+        and "bonds held directly or through mutual funds" in t
+    ):
+        return True
+    if (
+        "we would like you to note the following" in t
+        and "merrill is only required to revise a" in t
+        #and "" in t
+        and "portion of the amount reported in line" in t
+        and "residents be advised that payers are required" in t
+        and "or unit investments trusts" in t
+    ):
+        return True
+    #apex clearing
+    if (
+        "covered security acquired on or after january 1" in t
+        and "see the instructions above for a covered security acquired with acquisition premium" in t
+        and "regulations section 1.6045-1" in t
+        and "acquisition premium amortization for the year that reduces the amount" in t
+        and "report this amount on schedule b (form 1040)" in t
+        and "market discount is includible in taxable income as interest income" in t
+    ):
+        return True
+    if (
+        "covered security acquired" in t
+        and "if an amount is reported in this box, see the instructions for schedule b (form 1040)" in t
+        and "regulations section 1.6045-1" in t
+        and "reduces the amount of oid that is included as interest" in t
+        and "report the net amount of oid on schedule b (form 1040)" in t
+    ):
+        return True
+    if (
+        "covered security acquired on or after january 1" in t
+        and "see the instructions for schedule b (form 1040)" in t
+        and "regulations section 1.6045-1" in t
+        and "acquisition premium amortization for the year" in t
+        and "report this amount as interest income" in t
+    ):
+        return True
+    #apex clearing
+
     #1099-INt
     SKIP_BLOCK_TEXT = "bond premium on tax-exempt bond"
 
@@ -385,8 +436,6 @@ def pre_classify_skip_page(text: str) -> bool:
         and "an amount is not reported in this box for a tax" in t
         and SKIP_BLOCK_TEXT not in t):
         return True
-
-
     # W-2 General
     if "these are substitute wage and tax statements and are " in t:
         return True
@@ -494,157 +543,173 @@ def pre_classify_skip_page(text: str) -> bool:
 
 
 
-def is_unused_page(text: str) -> bool:
+def is_unused_page(text: str):
     """
     Detect pages that are just year-end messages, instructions,
     or generic investment details (not real 1099 forms).
+
+    Returns:
+        (True, [reasons]) or (False, [])
     """
     import re
+
+    reasons = []
     lower = text.lower()
-    # normalize multiple spaces to single
     norm = re.sub(r"\s+", " ", lower)
-    # 🔥 FIXED NUMERIC DETECTION
 
-    # UBS COVER PAGE DETECTION (combined)
+    # ==========================================================
+    # ⛔ NEVER mark a REAL 1099-INT as unused
+    # ==========================================================
+    if ("form 1099-int" in norm or "1099-int" in norm) and (
+        "$" in norm or "interest income" in norm or "payer's tin" in norm
+    ):
+        return False, []
 
-    # 1. Mandatory UBS identifier (MUST appear)
+    # ==========================================================
+    # 🟦 UBS COVER PAGE (MANDATORY + OPTIONAL)
+    # ==========================================================
     if "ubs financial services inc." in norm:
-    
-    # 2. Optional cover-page triggers (ANY match = unused page)
         ubs_optional_patterns = [
             "consolidated form 1099",
-            "your financial advisor",
+            #"your financial advisor",
             "to help you prepare for tax filing",
             "stock plan participants",
             "statements & reports tab",
             "ubs one source",
             "does not provide tax advice",
         ]
+        matched = [p for p in ubs_optional_patterns if p in norm]
+        if matched:
+            reasons.append(
+                "UBS cover page → matched: "
+                + ", ".join(f"'{m}'" for m in matched)
+            )
 
-        for pat in ubs_optional_patterns:
-            if pat in norm:
-                return True
-    # ⛔ NEVER mark a real 1099 form as unused
-    if ("form 1099-int" in norm or "1099-int" in norm) and (
-        "$" in norm or "interest income" in norm or "payer's tin" in norm
+    # ==========================================================
+    # 🟨 ONE-WAY KEYWORD RULES (OR)
+    # ==========================================================
+    keyword_rules = [
+        "understanding your form 1099",
+        "please utilize the master account number and document",
+        "supplement in a format that may be more helpful if you have a large number of transactions",
+        "retirement accounts will be reported under robinhood securities llc",
+
+        # Robinhood unused
+        "he basis to reflect your option premium. if the securities were acquired through the",
+        "had a reportable change in control or capital structure. you may be required to",
+        "box does not include proceeds from regulated futures contracts or section 1256 option",
+        "may also show the aggregate amount of cash and the fair market value of any",
+
+        "common instructions for recipient",
+        "1099-misc instructions for recipient",
+        "line 1a. shows total ordinary dividends",
+        #"this amount may be subject to backup withholding",
+
+        # UBS
+        "keep tax documents for your records. ubs will send you corrected forms 1099 only if revisions exceed",
+
+        # E*TRADE
+        "the amount of tax-exempt interest",
+        "interest paid to you must bet",
+        "the amount of tax-exempt interest paid to you must be reported on the applicable form 1040",
+        "interest paid to you must be taken into account in computing the amt reported on form 1040",
+
+        "year-end messages",
+        "important: if your etrade account transitioned",
+        "please visit etrade.com/tax",
+
+        # Robinhood
+        "tax forms for robinhood markets",
+        "robinhood retirements accounts",
+
+        # Tax year notices
+        "new for 2023 tax year",
+        "new for 2024 tax year",
+        "new for 2025 tax year",
+
+        "please note there may be a slight timing",
+        "account statement will not have included",
+
+        # 1099-SA
+        "fees and interest earnings are not considered",
+
+        # Mortgage
+        "for clients with paid mortgage insurance",
+
+        "you can also contact the",
+
+        "may be requested by the mortgagor",
+
+        "tax lot closed on a first in",
+        "your form 1099 composite may include the following internal revenue service",
+        "schwab provides your form 1099 tax information as early",
+        "if you have any questions or need additional information about your",
+        "schwab is not providing cost basis",
+        "the amount displayed in this column has been adjusted for option premiums",
+        "you may select a different cost basis method for your brokerage",
+        "to view and change your default cost basis",
+        "shares will be gifted based on your default cost basis",
+        "if you sell shares at a loss and buy additional shares",
+        "we are required to send you a corrected from with the revisions clearly marked",
+        "referenced to indicate individual items that make up the totals appearing",
+        "issuers of the securities in your account reallocated certain income distribution",
+        #"the amount shown may be dividends a corporation paid directly",
+        "if this form includes amounts belonging to another person",
+        "spouse is not required to file a nominee return to show",
+        "brokers and barter exchanges must report proceeds from",
+        "first in first out basis",
+        "see the instructions for your schedule d",
+
+        "other property received in a reportable change in control or capital",
+
+        # Consolidated
+        "filing your taxes",
+    ]
+
+    for kw in keyword_rules:
+        if kw in norm:
+            reasons.append(f"matched keyword → '{kw}'")
+
+    # ==========================================================
+    # 🟥 MULTI-CONDITION (AND) RULES
+    # ==========================================================
+    if (
+        "ubs will send you" in norm
+        and "amount of premium amortization" in norm
+        and "instructions for recipient" in norm
     ):
-        return False
-    
-    return (
-        "understanding your form 1099" in norm
-        #or "instructions for recipient" in norm
-        #robinhood page 1
-        or "please utilize the master account number and document" in norm
-        or "supplement in a format that may be more helpful if you have a large number of transactions" in norm
-        or "retirement accounts will be reported under robinhood securities llc" in norm
-        #or "" in norm
-        
-        #robinhood page 1
-        #robinhood unused page
-        or "he basis to reflect your option premium. if the securities were acquired through the" in norm
-        or "had a reportable change in control or capital structure. You may be required to" in norm
-        or "box does not include proceeds from regulated futures contracts or section 1256 option" in norm
-        or "may also show the aggregate amount of cash and the fair market value of any" in norm
-        #robinhood unused page
-        
-        or "common instructions for recipient" in norm
-        #or "keep tax documents for your records" in norm
-        #or "1099-div instructions for recipient" in norm
-        #or "1099-int instructions for recipient" in norm
-        or "1099-misc instructions for recipient" in norm
-        or "line 1a. shows total ordinary dividends" in norm
-        or "this amount may be subject to backup withholding" in norm
-        #or "see the instructions for form 1040" in norm
-
-        #Consolidated-1099
-        #Ubs
-        #1-way condition
-        or "keep tax documents for your records. ubs will send you corrected forms 1099 only if revisions exceed" in norm
-
-        # 3-way AND condition
-        or (
-            "ubs will send you" in norm
-            and "amount of premium amortization" in norm
-            and "instructions for recipient" in norm
-        )
-        # 4-way AND condition
-        or (
-            "line 11" in norm
-            and "premium amortization" in norm
-            and "covered security" in norm
-            and "instructions for schedule b" in norm
+        reasons.append(
+            "UBS instructions → ('ubs will send you' + 'amount of premium amortization' + 'instructions for recipient')"
         )
 
-        #ubs
-        #Etrdae
-        or "the amount of tax-exempt interest" in norm and "taken into account in computing" in norm
-        or "interest paid to you must bet" in norm and "the amount of tax-exempt" in norm
-        or "The amount of tax-exempt interest paid to you must be reported on the applicable Form 1040" in norm
-        or "interest paid to you must be taken into account in computing the amt reported on form 1040" in norm
-        #Etrdae
-        or "year-end messages" in norm
-        or "important: if your etrade account transitioned" in norm
-        or "please visit etrade.com/tax" in norm
-        or "tax forms for robinhood markets" in norm
-        or "robinhood retirements accounts" in norm
-        or "new for 2023 tax year" in norm
-        or "new for 2024 tax year" in norm
-        or "new for 2025 tax year" in norm
-        #or "that are necessary for tax" in norm
-        or "please note there may be a slight timing" in norm
-        or "account statement will not have included" in norm
-        #1099-SA
-        or "fees and interest earnings are not considered" in norm
-        #or "an hsa distribution" in norm
-        #or "death is includible in the account" in norm
-        #or "the account as of the date of death" in norm
-        #or "amount on the account holder" in norm
-        #1099-Mortgage
-        or "for clients with paid mortgage insurance" in norm
-        or "you can also contact the" in norm
-       # or "" in norm
-       #1098-T
-        #or "for the latest information" in norm
-        #or "such as legislation" in norm
-        #or "" in norm  
-        #or "please verify your personal information for accuracy" in norm  
-        #
-        # or "if you hold these secrities or another security that is subject" in norm  
-        #or "important tax docments enclosed" in norm  
-        
-             
-        or "may be requested by the mortgagor" in norm
-       
-        #or "you should contact a competent" in norm
-        or "tax lot closed on a first in" in norm
-        or "your form 1099 composite may include the following internal revenue service " in norm
-        or "schwab provides your form 1099 tax information as early" in norm
-        or "if you have any questions or need additional information about your" in norm
-        or "schwab is not providing cost basis" in norm
-        or "the amount displayed in this column has been adjusted for option premiums" in norm
-        or "you may select a different cost basis method for your brokerage" in norm
-        or "to view and change your default cost basis" in norm
-        #or "this information is not intended to be a substitue for specific individualized" in norm
-        or "shares will be gifted based on your default cost basis" in norm
-        or "if you sell shares at a loss and buy additional shares" in norm
-        or "we are required to send you a corrected from with the revisions clearly marked" in norm
-        or "referenced to indicate individual items that make up the totals appearing" in norm
-        or "issuers of the securities in your account reallocated certain income distribution" in norm
-        or "the amount shown may be dividends a corporation paid directly" in norm
-        or "if this form includes amounts belonging to another person" in norm
-        or "spouse is not required to file a nominee return to show" in norm
-        #or "character when passed through or distributed to its direct or in" in norm
-        or "brokers and barter exchanges must report proceeds from" in norm
-        or "first in first out basis" in norm
+    if (
+        "line 11" in norm
+        and "premium amortization" in norm
+        and "covered security" in norm
+        and "instructions for schedule b" in norm
+    ):
+        reasons.append(
+            "IRS Schedule B premium amortization (4-condition match)"
+        )
 
-        or "see the instructions for your schedule d" in norm
-        or "other property received in a reportable change in control or capital" in norm
-        or "enclosed is your" in norm and "consolidated tax statement" in norm
+    if "enclosed is your" in norm and "consolidated tax statement" in norm:
+        reasons.append(
+            "consolidated tax statement cover page"
+        )
 
-        or "filing your taxes" in norm and "turbotax" in norm
-        #or ("details of" in norm and "investment activity" in norm)
-        #or bool(investment_details)
-    )
+    if "filing your taxes" in norm and "turbotax" in norm:
+        reasons.append(
+            "TurboTax help / marketing page"
+        )
+
+    # ==========================================================
+    # ✅ FINAL DECISION
+    # ==========================================================
+    if reasons:
+        return True, reasons
+
+    return False, []
+
 
 def extract_account_number(text: str, form_type: str = "", page_number: int = None) -> str | None:
     # --- normalize ---
@@ -787,9 +852,22 @@ def extract_account_number(text: str, form_type: str = "", page_number: int = No
     # 3️⃣ UBS (Account W5 34244)
     # ---------------------------------------------------------------------
     ubs_account = None
-    m = re.search(r"Account\s+([A-Za-z0-9]{1,4}\s+[0-9]{3,})", text, re.IGNORECASE)
+    m = re.search(
+        r"Account[\s:\-]*\n?\s*([A-Za-z0-9]{1,4})\s*([0-9]{3,})",
+        text,
+        re.IGNORECASE
+    )
     if m:
-        ubs_account = m.group(1).strip().replace(" ", "")
+        ubs_account = (m.group(1) + m.group(2)).strip()
+    # Fallback: W5 34244 anywhere
+    if not ubs_account:
+        m = re.search(
+            r"\b(W[0-9]{1,3})\s*([0-9]{3,6})\b",
+            text,
+            re.IGNORECASE
+        )
+        if m:
+            ubs_account = (m.group(1) + m.group(2)).strip()
 
     # ---------------------------------------------------------------------
     # 4️⃣ MERRILL LYNCH / MERRILL EDGE
@@ -910,6 +988,12 @@ def is_consolidated_issuer(text: str) -> bool:
         "vanguard",
         "apex clearing",
         "interactive brokers",
+        "ubs financial",
+        "ubs financial services",
+        "apex clearing",
+        "merrill",
+        
+        
     ]
 
     return any(name in t for name in issuers)
@@ -2447,14 +2531,22 @@ def extract_consolidated_issuer(text: str) -> str | None:
 
     # 2️⃣ Known broker mappings (UPDATED)
     issuers = {
+        #etrade
         r"etrade|e\*trade": "E*TRADE (Morgan Stanley)",
+        #morgan stanley
         r"morgan\s+stanley": "E*TRADE (Morgan Stanley)",
+        #charles schwab
         r"charles\s+schwab": "Charles Schwab",
+        #fidelity
         r"fidelity": "Fidelity Investments",
+        #apex clearing
         r"apex\s+clearing": "Apex Clearing",
+        #robinhood
         r"robinhood": "Robinhood",
+        #merrill
         r"merrill": "Merrill Lynch",
-
+        #ubs financial
+        r"ubs\s+financial\s+services\s+inc\.?": "UBS Financial Services Inc.",
         # ➕ NEW: TD Ameritrade Clearing variants
         r"td\s*ameri?trade\s+clearing": "TD Ameritrade Clearing",
         r"tda\s*clearing": "TD Ameritrade Clearing",
@@ -2469,8 +2561,7 @@ def extract_consolidated_issuer(text: str) -> str | None:
         r"td\s+ameritrade\s+clearing": "TD Ameritrade Clearing, Inc.",
         r"ameritrade": "TD Ameritrade",
         r"td\s+ameritrade": "TD Ameritrade (Charles Schwab)",
-
-        # already-present general TD Ameritrade
+    # already-present general TD Ameritrade
         r"td\s*ameri?trade": "TD Ameritrade",
     }
 
@@ -6915,13 +7006,15 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                 # Always extract account + issuer
                 #acct_num = extract_account_number(tiered)
                 issuer = extract_consolidated_issuer(tiered)
-                if is_unused_page(lower_text):
-                    print(f"[UNUSED] Early detection → {os.path.basename(path)} p{i+1}", file=sys.stderr)
+                unused, reasons = is_unused_page(lower_text)
+                if unused:
+                    print(
+                        f"[UNUSED] {os.path.basename(path)} p{i+1}\n  - "
+                        + "\n  - ".join(reasons),
+                        file=sys.stderr
+                    )
                     others.append((path, i, "Unused"))
                     continue
-
-
-
 
                 # Page qualifies as consolidated
                 consolidated_keywords = [
@@ -7022,7 +7115,6 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     or "fidelity" in text.lower()
                     or "supplemental information" in text.lower()
                     or "tax reporting statement" in text.lower()
-                    or "the portion of capital gain distributions is subject to applicable rate" in text.lower()
                    #SUMMARY OF PROCEEDS, GAINS & LOSSES, ADJUSTMENTS AND WITHHOLDING
                     or "summary of proceeds, gains & losses, adjustments and withholding" in text.lower()
                     or "Changes to dividend tax classifications processed after your original tax form is issued for" in text.lower()
@@ -7402,12 +7494,23 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
             anchor_page = k1_page_map.get((anchor_path, anchor_idx), 0)
 
             clean = extract_k1_company(company)
+            # 🔍 Detect owner from the MAIN K-1 page
+            owner = None
+            try:
+                main_text = extract_text(anchor_path, anchor_idx)
+                owner = detect_ssn_owner(main_text, tp_ssn, sp_ssn)
+            except:
+                owner = None
+
+            label = f"{clean} (EIN {ein})"
+            if owner:
+                label = f"{label} – {owner}"
+
             comp_node = merger.add_outline_item(
-                f"{clean} (EIN {ein})",
+                label,
                 anchor_page,
                 parent=form_roots[form_type]
             )
-
 
             # ---- NOW append pages IN SORTED ORDER ----
             for (p, idx, _) in sorted_pages:
@@ -7469,6 +7572,21 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     issuer = alias_issuer(account_names.get(acct)) if account_names.get(acct) else "Consolidated 1099"
 
                     # FINAL — Always include account number, never use phone numbers or “Account”
+                    real_entries = consolidated_payload.get(key, [])
+
+                    # 🔍 Detect TP / SP from FIRST REAL PAGE
+                    owner = None
+                    if real_entries:
+                        try:
+                            owner = detect_ssn_owner(
+                                extract_text(real_entries[0][0], real_entries[0][1]),
+                                tp_ssn,
+                                sp_ssn
+                            )
+                        except Exception:
+                            owner = None
+
+                    # 🏷️ Build label AFTER owner detection
                     if issuer and acct:
                         forms_label = f"{issuer} – {acct}"
                     elif issuer:
@@ -7476,10 +7594,16 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     else:
                         forms_label = f"Account {acct}"
 
+                    if owner:
+                        forms_label = f"{forms_label} – {owner}"
 
-                    forms_node = merger.add_outline_item(forms_label, page_num, parent=cons_root)
+                    # NOW create bookmark
+                    forms_node = merger.add_outline_item(
+                        forms_label,
+                        page_num,
+                        parent=cons_root
+                    )
 
-                    real_entries = consolidated_payload.get(key, [])
 
         # (optional context labels — does NOT skip appends)
              
@@ -7492,7 +7616,14 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                             print(f"[SKIP UNUSED] Consolidated page {real_entry[0]} p{real_entry[1]+1} kept under account only")
                             # Do NOT add it to others[]
                             # Just skip creating a form label, but still append the page
-                            append_and_bookmark(real_entry, forms_node, "", with_bookmark=False)
+                            append_and_bookmark(
+                                real_entry,
+                                forms_node,
+                                title="",               # keep empty
+                                with_bookmark=False,
+                                owner_override=None     # 🔥 FORCE TP/SP detection
+                            )
+
                             continue
 
 

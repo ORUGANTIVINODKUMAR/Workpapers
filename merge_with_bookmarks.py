@@ -18,11 +18,7 @@ from PyPDF2 import PdfReader, PdfMerger
 import platform
 
 import pytesseract
-# ✅ Auto-detect OS and set Tesseract path accordingly
-if platform.system() == "Windows":
-    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-else:
-    pytesseract.pytesseract.tesseract_cmd = "tesseract"
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\Vinod Kumar\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
 #rom pdf2image import convert_from_path
 import fitz  # PyMuPDF
@@ -1574,6 +1570,43 @@ def classify_text(text: str) -> Tuple[str, str]:
     # --------------------------- 1095-C --------------------------- #
     
 
+#1098-Mortgage form page 1
+    mort_front = [
+    "Mortgage insurance premiums",
+    "Mortgage origination date",
+    "Number of properties securing the morgage",  # typo here, maybe fix to "mortgage"
+    "Address or description of property securing",
+    "form 1098 mortgage",
+    "limits based on the loan amount",
+    "refund of overpaid",
+    "Mortgage insurance important tax Information",
+    "mortgage origination date the information",
+    "1 mortgage interest received from",
+    #"Account number (see instructions)"
+    ]
+    mort_unused = [
+        "instructions for payer/borrower",
+        "payer’s/borrower’s taxpayer identification number",
+        "box 1. shows the mortgage interest received",
+        "Box 1. Shows the mortgage interest received by the recipient",
+        "Box 3. Shows the date of the mortgage origination",
+        "Box 5. If an amount is reported in this box",
+        "Box 8. Shows the address or description",  # ← this line was missing a comma
+        #This information is being provided to you as",
+        "We’re providing the mortgage insurance",
+        "If you received this statement as the payer of",
+        "If your mortgage payments were subsidized"
+       
+    ]
+    lower = text.lower()
+    found_front = any(pat.lower() in lower for pat in mort_front)
+    found_unused = any(pat.lower() in lower for pat in mort_unused)
+
+# 🔁 Priority: 1098-Mortgage > Unused
+    if found_front:
+        return "Expenses", "1098-Mortgage"
+    elif found_unused:
+        return "Others", "Unused"
 
     if (
         "contact a competent tax advisor or the irs" in t
@@ -1944,44 +1977,7 @@ def classify_text(text: str) -> Tuple[str, str]:
 
    
     #---------------------------1098-Mortgage----------------------------------#    
-    #1098-Mortgage form page 1
-    mort_front = [
-    "Mortgage insurance premiums",
-    "Mortgage origination date",
-    "Number of properties securing the morgage",  # typo here, maybe fix to "mortgage"
-    "Address or description of property securing",
-    "form 1098 mortgage",
-    "limits based on the loan amount",
-    "refund of overpaid",
-    "Mortgage insurance important tax Information",
-    "mortgage origination date the information",
-    "1 mortgage interest received from",
-    #"Account number (see instructions)"
-    ]
-    mort_unused = [
-        "instructions for payer/borrower",
-        "payer’s/borrower’s taxpayer identification number",
-        "box 1. shows the mortgage interest received",
-        "Box 1. Shows the mortgage interest received by the recipient",
-        "Box 3. Shows the date of the mortgage origination",
-        "Box 5. If an amount is reported in this box",
-        "Box 8. Shows the address or description",  # ← this line was missing a comma
-        #This information is being provided to you as",
-        "We’re providing the mortgage insurance",
-        "If you received this statement as the payer of",
-        "If your mortgage payments were subsidized"
-       
-    ]
-    lower = text.lower()
-    found_front = any(pat.lower() in lower for pat in mort_front)
-    found_unused = any(pat.lower() in lower for pat in mort_unused)
-
-# 🔁 Priority: 1098-Mortgage > Unused
-    if found_front:
-        return "Expenses", "1098-Mortgage"
-    elif found_unused:
-        return "Others", "Unused"
-
+    
     #---------------------------1098-Mortgage----------------------------------#
 
     if '1099-int' in t or 'interest income' in t: return 'Income', '1099-INT'
@@ -1994,10 +1990,6 @@ def classify_text(text: str) -> Tuple[str, str]:
     return 'Unknown', 'Unused'
 
    
-
-   
-
-
 # --------------------------- 1095-C --------------------------- #
 def extract_1095c_bookmark(text: str) -> str:
     """
@@ -7116,7 +7108,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
                 if acct_num and (
                     is_consolidated
-                    or "fidelity" in text.lower()
+                    or ("fidelity" in text.lower() and "1099-r" not in text.lower())
                     or "supplemental information" in text.lower()
                     or "tax reporting statement" in text.lower()
                    #SUMMARY OF PROCEEDS, GAINS & LOSSES, ADJUSTMENTS AND WITHHOLDING

@@ -334,6 +334,8 @@ import fitz
 
 def pre_classify_skip_page(text: str) -> bool:
     t = text.lower()
+    #1098-R
+    #if ""
     if "THIS PAGE WAS INTENTIONALLY LEFT BLANK" in t:
         return True
     if "this page was intentionally left blank" in t:
@@ -1308,6 +1310,9 @@ def extract_ein_number(text: str) -> str | None:
 
     # --- NEW: Skip EIN extraction for Form 1098 mortgage forms ---
     skip_keywords = [
+        #1098-t
+        "scholarships or grants",
+        "adjustments to tution",
         # Form 1098 mortgage
         "tution",
         "adjustments made for",
@@ -1536,6 +1541,21 @@ def classify_text(text: str) -> Tuple[str, str]:
         )
     ):
         return "Income", "1099-INT"
+    #1098-t
+    #if '1098-t' in t: return '', '1098-T'
+    #if '1098-t' in t: return 'Expenses', '1098-T'
+    if (
+        ("1098-t" in t or "tuition statement" in t)
+        and t.count("$") >= 2
+    ):
+        return "Expenses", "1098-T"
+
+    if (
+        "instructions for student" in t
+        and "1098-t" not in t
+        and t.count("$") == 0
+    ):
+        return "Others", "Unused"
 
 
 
@@ -1568,21 +1588,21 @@ def classify_text(text: str) -> Tuple[str, str]:
     ):
         return "Others", "1095-C"
     # --------------------------- 1095-C --------------------------- #
-    
+
 
 #1098-Mortgage form page 1
     mort_front = [
-    "Mortgage insurance premiums",
-    "Mortgage origination date",
-    "Number of properties securing the morgage",  # typo here, maybe fix to "mortgage"
-    "Address or description of property securing",
-    "form 1098 mortgage",
-    "limits based on the loan amount",
-    "refund of overpaid",
-    "Mortgage insurance important tax Information",
-    "mortgage origination date the information",
-    "1 mortgage interest received from",
-    #"Account number (see instructions)"
+        "Mortgage insurance premiums",
+        "Mortgage origination date",
+        "Number of properties securing the morgage",  # typo here, maybe fix to "mortgage"
+        "Address or description of property securing",
+        "form 1098 mortgage",
+        "limits based on the loan amount",
+        "refund of overpaid",
+        "Mortgage insurance important tax Information",
+        "mortgage origination date the information",
+        "1 mortgage interest received from",
+        #"Account number (see instructions)"
     ]
     mort_unused = [
         "instructions for payer/borrower",
@@ -1783,7 +1803,7 @@ def classify_text(text: str) -> Tuple[str, str]:
     
     if is_unused_page(text):
         return "Unknown", "Unused"
-    if '1098-t' in t: return 'Expenses', '1098-T'
+
     
     # If page matches any instruction patterns, classify as Others → Unused
     instruction_patterns = [
@@ -1848,20 +1868,20 @@ def classify_text(text: str) -> Tuple[str, str]:
     #"box 14. shows cusip number",
     #"boxes 15-17. state tax withheld",
     # 1098-T instruction lines
-    "you, or the person who can claim you as a dependent, may be able to claim an education credit",
-    "student’s taxpayer identification number (tin)",
-    "box 1. shows the total payments received by an eligible educational institution",
-    "box 2. reserved for future use",
-    "box 3. reserved for future use",
-    "box 4. shows any adjustment made by an eligible educational institution",
-    "box 5. shows the total of all scholarships or grants",
-    "tip: you may be able to increase the combined value of an education credit",
-    "box 6. shows adjustments to scholarships or grants for a prior year",
-    "box 7. shows whether the amount in box 1 includes amounts",
-    "box 8. shows whether you are considered to be carrying at least one-half",
-    "box 9. shows whether you are considered to be enrolled in a program leading",
-    "box 10. shows the total amount of reimbursements or refunds",
-    "future developments. for the latest information about developments related to form 1098-t",
+    #"you, or the person who can claim you as a dependent, may be able to claim an education credit",
+    #"student’s taxpayer identification number (tin)",
+    #"box 1. shows the total payments received by an eligible educational institution",
+    #"box 2. reserved for future use",
+    #"box 3. reserved for future use",
+    #"box 4. shows any adjustment made by an eligible educational institution",
+    #"box 5. shows the total of all scholarships or grants",
+    #"tip: you may be able to increase the combined value of an education credit",
+    #"box 6. shows adjustments to scholarships or grants for a prior year",
+    #"box 7. shows whether the amount in box 1 includes amounts",
+    #"box 8. shows whether you are considered to be carrying at least one-half",
+    #"box 9. shows whether you are considered to be enrolled in a program leading",
+    #"box 10. shows the total amount of reimbursements or refunds",
+    #"future developments. for the latest information about developments related to form 1098-t",
     # 1098-Mortgage
     ]
     for pat in instruction_patterns:
@@ -6784,13 +6804,11 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
    
    # remove any zero‐byte files so PdfReader never sees them
-    files = []
-    for f in all_files:
-        p = os.path.join(abs_input, f)
-        if os.path.getsize(p) == 0:
-           logger.warning(f"Skipping empty file: {f}")
-           continue
-        files.append(f)
+    files = [
+        f for f in files
+        if os.path.getsize(os.path.join(abs_input, f)) > 0
+    ]
+
     # 🔄 Convert images into PDFs so the rest of the pipeline sees only PDFs
     converted_files = []
     for f in list(files):
@@ -6834,16 +6852,19 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
     # ✅ Track seen page text hashes to detect duplicate pages (within or across files)
     seen_hashes = {}   # tracks duplicate page text
-    seen_pages = {}    # tracks appended pages
+    #seen_pages = {}    # tracks appended pages
       # pages assigned to consolidated-1099
+    duplicate_file_set = set(duplicate_files)
+    duplicate_pages = set()
+
 
 
     # --- Skip duplicates in main processing ---
-    files = [f for f in files if f not in duplicate_files]
+    #files = [f for f in files if f not in duplicate_files]
 
     for fname in files:
         last_ein_seen = None
-        seen_pages = {}   # reset duplicate tracker per file
+        #seen_pages = {}   # reset duplicate tracker per file
         path = os.path.join(abs_input, fname)
         if fname.lower().endswith('.pdf'):
             total = len(PdfReader(path).pages)
@@ -6861,11 +6882,15 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     page_hash = hashlib.md5(text.encode("utf-8", errors="ignore")).hexdigest()
                     file_key = (fname, page_hash)   # <-- isolate by filename
                     if file_key in seen_hashes:
-                        print(f"[DUPLICATE PAGE] {fname} p{i+1} matches ...", file=sys.stderr)
+                        print(f"[DUPLICATE PAGE] {fname} p{i+1}", file=sys.stderr)
                         others.append((path, i, "Duplicate"))
-                        continue  # ⬅️ SKIPS classification and appending
+                        duplicate_pages.add((path, i))
+
+                        # 🔥 HARD STOP — do NOT classify, do NOT append to Expenses
+                        continue
                     else:
                         seen_hashes[file_key] = (path, i)
+
 
 
                     print(text or "[NO TEXT]", file=sys.stderr)
@@ -6993,6 +7018,9 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                 if acct_num and len(acct_num) < 5:
                     acct_num = None  # ignore garbage like "ET1" or "0971"
 
+                # 🚫 Block duplicate pages from Consolidated logic
+                if (path, i) in duplicate_pages:
+                    continue
 
                 # 👉 Extract issuer name from this page
                 issuer = extract_consolidated_issuer(tiered)
@@ -7206,6 +7234,9 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
 # Always classify after account checks
                 cat, ft = classify_text(tiered)
+                # 🚫 DO NOT classify duplicate pages again
+                if (path, i) in duplicate_pages:
+                    continue
 
                
                 # NEW: log every classification
@@ -7337,6 +7368,8 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
     page_num = 0
     stop_after_na = False
     import mimetypes
+    seen_pages = set()
+
     #seen_pages = set()
     #def append_and_bookmark(entry, parent, title, with_bookmark=True):
     
@@ -7364,9 +7397,10 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
         # Skip duplicates -------------------------------------
         sig = (p, idx)
-        if sig in seen_pages:
+        if sig in seen_pages and owner_override != "allow_duplicate":
             return
-        seen_pages[sig] = True
+        seen_pages.add(sig)
+
 
         # Write single page temp PDF --------------------------
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
@@ -7804,6 +7838,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
 # --- Add Others section with Unused and Duplicate pages ---
     # Always include the OTHERS category if any pages are classified there
+    #if others:
     if others:
         root = merger.add_outline_item('Others', page_num)
 
@@ -7812,20 +7847,41 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
         if unused_pages:
             node_unused = merger.add_outline_item('Unused', page_num, parent=root)
             for entry in unused_pages:
-                append_and_bookmark(entry, node_unused, "", with_bookmark=False)
+                append_and_bookmark(
+                    entry,
+                    node_unused,
+                    "",
+                    with_bookmark=False
+                )
 
-        # ---- DUPLICATE ----
+        # ---- DUPLICATE (pages + files) ----
         dup_pages = [e for e in others if e[2] == 'Duplicate']
-        if dup_pages:
+
+        if dup_pages or duplicate_files:
             node_dupe = merger.add_outline_item('Duplicate', page_num, parent=root)
-            for entry in dup_pages:
-                append_and_bookmark(entry, node_dupe, "", with_bookmark=False)
 
-                print(f"[Bookmark] {os.path.basename(entry[0])} p{entry[1]+1} → Category='Others', Form='Unused'", file=sys.stderr)
-
-   
-
-
+            # 2️⃣ Duplicate FILES (entire PDFs)
+            for f in duplicate_files:
+                dup_path = os.path.join(abs_input, f)
+                try:
+                    reader = PdfReader(dup_path)
+                    for i in range(len(reader.pages)):
+                        append_and_bookmark(
+                            (dup_path, i, "Duplicate"),
+                            node_dupe,
+                            "",
+                            with_bookmark=False,
+                            owner_override="allow_duplicate"   # 🔥 REQUIRED
+                        )
+                    print(
+                        f"[Duplicate File] Added entire file {f} under Others → Duplicate",
+                        file=sys.stderr
+                    )
+                except Exception as e:
+                    print(
+                        f"⚠️ Failed to append duplicate file {f}: {e}",
+                        file=sys.stderr
+                    )
 
             #append_and_bookmark(entry, node, lbl)
 

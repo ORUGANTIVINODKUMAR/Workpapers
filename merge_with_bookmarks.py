@@ -17,12 +17,14 @@ from PyPDF2 import PdfReader, PdfMerger
 
 import platform
 
+
 import pytesseract
 # ✅ Auto-detect OS and set Tesseract path accordingly
 if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 else:
     pytesseract.pytesseract.tesseract_cmd = "tesseract"
+
 
 #rom pdf2image import convert_from_path
 import fitz  # PyMuPDF
@@ -6760,6 +6762,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
     sp_ssn = ""
     tp_name = ""
     sp_name = ""
+    used_file_paths = set()
 
     # The server now sends JSON as 4th argument
     try:
@@ -6797,13 +6800,15 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                 md5 = hashlib.md5(fh.read()).hexdigest()
             if md5 in hash_map:
                 duplicate_files.append(f)
+                used_file_paths.add(os.path.join(abs_input, f))
             else:
                 hash_map[md5] = f
         except Exception as e:
             print(f"⚠️ Could not hash {f}: {e}", file=sys.stderr)
 
     # Keep only unique files for processing
-    files = sorted(hash_map.values())
+    files = all_files[:]   # keep ALL files
+
     logger.info(f"Found {len(files)} unique files, {len(duplicate_files)} duplicates.")
 
    
@@ -6870,6 +6875,9 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
         last_ein_seen = None
         #seen_pages = {}   # reset duplicate tracker per file
         path = os.path.join(abs_input, fname)
+        used_file_paths.add(path)
+        is_duplicate_file = fname in duplicate_files
+
         if fname.lower().endswith('.pdf'):
             total = len(PdfReader(path).pages)
             for i in range(total):
@@ -6878,13 +6886,20 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
                 # ── Print header before basic extract_text
                 print("→ extract_text() output:", file=sys.stderr)
+                # 🔴 STEP 8 — Route duplicate FILE pages to Others → Duplicate
+                if is_duplicate_file:
+                    print(f"[DUPLICATE FILE] {fname} p{i+1} → Others → Duplicate", file=sys.stderr)
+                    others.append((path, i, "Duplicate"))
+                    continue
+
                 try:
                     text = extract_text(path, i)
                     # --- 🆕 Detect duplicate pages across all PDFs ---
                     import hashlib
 
                     page_hash = hashlib.md5(text.encode("utf-8", errors="ignore")).hexdigest()
-                    file_key = (fname, page_hash)   # <-- isolate by filename
+                    file_key = page_hash
+                   # <-- isolate by filename
                     if file_key in seen_hashes:
                         print(f"[DUPLICATE PAGE] {fname} p{i+1}", file=sys.stderr)
                         others.append((path, i, "Duplicate"))
@@ -7794,6 +7809,7 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     if trustee:
                         lbl = trustee
                     else:
+                        page_text = extract_text(path, idx)  # ✅ get text for this page
                         lbl = extract_5498sa_bookmark(text)
 
                 elif form == '1098-T':
@@ -7905,16 +7921,15 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
     # Cleanup uploads
     # Cleanup uploads
     # Cleanup uploads (originals + converted PDFs)
-    to_delete = set(files) | set(os.path.basename(f) for f in converted_files)
+    print("[CLEANUP] Deleting files used in this task", file=sys.stderr)
 
-    for fname in list(to_delete):
-        fpath = os.path.join(input_dir, fname)
+    for fpath in used_file_paths:
         try:
             if os.path.exists(fpath):
                 os.remove(fpath)
-                print(f"🧹 Deleted {fname}", file=sys.stderr)
+                print(f"🧹 Deleted {os.path.basename(fpath)}", file=sys.stderr)
         except Exception as e:
-            print(f"⚠️ Failed to delete {fname}: {e}", file=sys.stderr)
+            print(f"⚠️ Failed to delete {fpath}: {e}", file=sys.stderr)
 
     # Also remove any leftover images (JPG, PNG, etc.)
     for fname in os.listdir(input_dir):

@@ -1451,6 +1451,41 @@ def classify_text(text: str) -> Tuple[str, str]:
       # Detect W-2 pages by their header phrases
     t = re.sub(r"\s+", " ", text.lower()).strip()
     lower = text.lower()
+    
+    # --------------------------- INFO DOCUMENTS --------------------------- #
+
+    # IRS Notices (CP2000, CP14, LT letters, etc.)
+    if (
+        "internal revenue service" in lower
+        and any(x in lower for x in [
+            "notice",
+            "cp",
+            "lt",
+            "department of the treasury",
+            "irs notice",
+            "amount due",
+            "proposed changes",
+        ])
+    ):
+        return "Info", "IRS Notice"
+
+    # Email / chat / correspondence
+    if (
+        "from:" in lower
+        and "to:" in lower
+        and ("subject:" in lower or "sent:" in lower)
+    ):
+        return "Info", "Email Chat"
+
+    if any(x in lower for x in [
+        "email conversation",
+        "email thread",
+        "forwarded message",
+        "re:",
+        "fw:",
+    ]):
+        return "Info", "Email Chat"
+
     sa_front_patterns = [
         r"earnings\s+on\s+excess\s+cont",   # will also match 'cont.'
         #r"form\s+1099-?sa",                 # matches '1099-SA' or '1099SA'
@@ -6840,7 +6875,9 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
     logger.info(f"Found {len(files)} files in {abs_input}")
 
-    income, expenses, others = [], [], []
+    income, expenses, info_pages, others = [], [], [], []
+
+
     # what bookmarks we want in workpapaer shoudl be add in this
     w2_titles = {}
     int_titles = {}
@@ -7276,6 +7313,9 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
                     income.append(entry)
                 elif cat == 'Expenses':
                     expenses.append(entry)
+                elif cat == 'Info':
+                    info_pages.append(entry)
+
                 else:
                     others.append(entry)
 
@@ -7570,7 +7610,18 @@ def merge_with_bookmarks(input_dir, output_pdf, meta_json, dummy=""):
 
 
     # ── Bookmarks
-   
+    # -------------------- INFO SECTION -------------------- #
+    if info_pages:
+        root_info = merger.add_outline_item('Info', page_num)
+        info_groups = group_by_type(info_pages)
+
+        for form, grp in info_groups.items():
+            node = merger.add_outline_item(form, page_num, parent=root_info)
+
+            for entry in grp:
+            # No fancy titles needed – one page per notice/chat
+                append_and_bookmark(entry, node, "", with_bookmark=False)
+
     if income:
         root = merger.add_outline_item('Income', page_num)
         used_labels = set()   # FIX #2

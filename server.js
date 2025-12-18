@@ -17,11 +17,12 @@ const app = express();
 
 // Track progress state for frontend
 let mergeProgress = { percent: 0, message: "Idle" };
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3032;
 
 // =============================
 // Data Files
 // =============================
+
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const CLIENT_FILE = path.join(DATA_DIR, "clients.json");
@@ -52,7 +53,8 @@ function logActivity(username, action, metadata = {}) {
 // =============================
 app.use(cors({ origin: "http://localhost:3001", credentials: true }));
 app.use(express.static("public"));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '110mb' }));
+app.use(bodyParser.urlencoded({ limit: '110mb', extended: true }));
 app.use(
   session({
     secret: "super_secret_key_change_this",
@@ -287,7 +289,13 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${file.originalname}`);
   },
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100 MB per file
+  }
+});
+
 
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");

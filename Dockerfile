@@ -6,7 +6,6 @@ RUN apt-get update \
     python3 python3-venv python3-pip \
     tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
     poppler-utils libpoppler-cpp-dev \
-    nginx gettext-base \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -22,13 +21,8 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # ---- Copy app ----
 COPY . .
 
-# ---- Copy nginx template ----
-COPY nginx.conf /etc/nginx/nginx.conf.template
-
-ENV PORT=3032
+ARG PORT=3000
+ENV PORT=$PORT
 EXPOSE $PORT
 
-# ---- Start nginx + node (Render-safe) ----
-CMD envsubst '$PORT' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf \
- && nginx \
- && node server.js
+CMD ["node", "server.js"]

@@ -6,6 +6,7 @@ RUN apt-get update \
     python3 python3-venv python3-pip \
     tesseract-ocr libtesseract-dev libleptonica-dev tesseract-ocr-eng \
     poppler-utils libpoppler-cpp-dev \
+    nginx \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -21,8 +22,11 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # ---- Copy app ----
 COPY . .
 
-ARG PORT=3000
-ENV PORT=$PORT
-EXPOSE $PORT
+# ---- Copy nginx config ----
+COPY nginx.conf /etc/nginx/nginx.conf
 
-CMD ["node", "server.js"]
+ENV PORT=3032
+EXPOSE 80
+
+# ---- Start both Nginx + Node ----
+CMD service nginx start && node server.js
